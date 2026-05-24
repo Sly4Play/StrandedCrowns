@@ -99,12 +99,13 @@ function WorldService.buildIsland()
     table.insert(_portals, pn)
     table.insert(_portals, ps)
 
+    local portalPositions = {GameConfig.PORTAL_NORTH_POS, GameConfig.PORTAL_SOUTH_POS}
+
     local forbidden = {
         GameConfig.PORTAL_NORTH_POS,
         GameConfig.PORTAL_SOUTH_POS,
         center,
     }
-    local forbiddenRadius = 14
 
     for i = 1, GameConfig.TREE_COUNT do
         local pos
@@ -113,7 +114,8 @@ function WorldService.buildIsland()
         repeat
             pos = randXZ(rng, radius, 0)
             attempts += 1
-            if not tooClose(pos, forbidden, forbiddenRadius) then
+            if not tooClose(pos, {center}, GameConfig.TREE_MIN_DIST_TOWN)
+                and not tooClose(pos, portalPositions, GameConfig.TREE_MIN_DIST_PORTAL) then
                 placed = true
                 break
             end

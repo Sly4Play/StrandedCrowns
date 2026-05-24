@@ -16,8 +16,6 @@ local WorldService = require(Services.WorldService)
 WorldService.buildIsland()
 
 local MayorService = require(Services.MayorService)
--- MayorService self-inits; no further call needed here
-_ = MayorService  -- suppress unused-variable lint
 
 local Remotes    = require(game:GetService("ReplicatedStorage").Shared.Remotes)
 local NpcService = require(Services.NpcService)

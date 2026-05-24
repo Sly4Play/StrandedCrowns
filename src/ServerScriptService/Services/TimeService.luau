@@ -44,7 +44,7 @@ local function advanceTo(phase: string)
     broadcast()
 end
 
-task.spawn(function()
+task.defer(function()
     _dayNumber += 1                  -- day 1 starts here, same path as all future Dawns
     broadcast()
     _events.Dawn:Fire(_dayNumber)   -- fire Dawn for day 1
