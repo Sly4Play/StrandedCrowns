@@ -1,0 +1,356 @@
+local GameConfig   = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local CoinService  = require(script.Parent.CoinService)
+local WorldService = require(script.Parent.WorldService)
+local TimeService  = require(script.Parent.TimeService)
+local Players      = game:GetService("Players")
+
+-- NPC registry: id → NpcData
+type NpcData = {
+    id: string, instance: Model,
+    profession: string, tool: BasePart?,
+    purse: number, maxPurse: number,
+    state: string, campId: number?,
+}
+local _npcs: {[string]: NpcData} = {}
+local _npcCounter = 0
+
+-- camp vagrant counts
+local _campCounts: {[number]: number} = {}
+
+-- ── helpers ──────────────────────────────────────────────────────────────
+
+local function nextId(): string
+    _npcCounter += 1
+    return "npc_" .. _npcCounter
+end
+
+local function makeNpcModel(name: string, color: BrickColor, pos: Vector3): Model
+    local model = Instance.new("Model")
+    model.Name  = name
+
+    local root      = Instance.new("Part")
+    root.Name       = "HumanoidRootPart"
+    root.Size       = Vector3.new(2, 3, 1)
+    root.BrickColor = color
+    root.CanCollide = false
+    root.Position   = pos + Vector3.new(0, 1.5, 0)
+    root.Parent     = model
+
+    local humanoid         = Instance.new("Humanoid")
+    humanoid.WalkSpeed     = GameConfig.VAGRANT_WALK_SPEED
+    humanoid.MaxHealth     = 100
+    humanoid.Health        = 100
+    humanoid.Parent        = model
+
+    model.PrimaryPart = root
+    model.Parent      = workspace
+    return model
+end
+
+local function moveNpcTo(npc: NpcData, target: Vector3)
+    local humanoid = npc.instance:FindFirstChildOfClass("Humanoid")
+    if humanoid then humanoid:MoveTo(target) end
+end
+
+local function getNpcPosition(npc: NpcData): Vector3
+    local root = npc.instance.PrimaryPart
+    return root and root.Position or Vector3.new(0, 0, 0)
+end
+
+-- Collect ground coins near NPC if under max purse
+local function collectNearbyCoins(npc: NpcData)
+    local pos      = getNpcPosition(npc)
+    local radius   = GameConfig.COIN_PICKUP_RADIUS
+    for _, coin in CoinService.getGroundCoins() do
+        if npc.purse >= npc.maxPurse then break end
+        if coin.instance.Parent and (coin.instance.Position - pos).Magnitude < radius then
+            local canTake = npc.maxPurse - npc.purse
+            local take    = math.min(coin.amount, canTake)
+            npc.purse    += take
+            -- remove coin from world
+            CoinService.removeGroundCoin(coin.instance)
+        end
+    end
+    -- Overflow: drop to nearest player
+    if npc.purse >= npc.maxPurse then
+        local nearestPlayer: Player?
+        local nearestDist = GameConfig.NPC_OVERFLOW_RADIUS
+        for _, player in Players:GetPlayers() do
+            local char = player.Character
+            if char and char.PrimaryPart then
+                local d = (char.PrimaryPart.Position - pos).Magnitude
+                if d < nearestDist then
+                    nearestDist    = d
+                    nearestPlayer  = player
+                end
+            end
+        end
+        if nearestPlayer then
+            CoinService.award(nearestPlayer.UserId, npc.purse)
+            npc.purse = 0
+        else
+            CoinService.spawnGroundCoins(pos, npc.purse, 0)
+            npc.purse = 0
+        end
+    end
+end
+
+local NpcService = {}
+
+-- ── Vagrant camp spawning ─────────────────────────────────────────────────
+
+local function spawnVagrant(campIdx: number, campPos: Vector3)
+    local count = _campCounts[campIdx] or 0
+    if count >= GameConfig.CAMP_MAX_VAGRANTS then return end
+
+    local id     = nextId()
+    local offset = Vector3.new(math.random(-3, 3), 0, math.random(-3, 3))
+    local model  = makeNpcModel("Vagrant_" .. id, BrickColor.new("Medium stone grey"), campPos + offset)
+
+    local npc: NpcData = {
+        id = id, instance = model,
+        profession = "Vagrant", tool = nil,
+        purse = 0, maxPurse = 0,
+        state = "InCamp", campId = campIdx,
+    }
+    _npcs[id] = npc
+    _campCounts[campIdx] = count + 1
+
+    -- Keep vagrant within camp radius
+    task.spawn(function()
+        while npc.state == "InCamp" do
+            task.wait(3)
+            local pos = getNpcPosition(npc)
+            if (pos - campPos).Magnitude > GameConfig.CAMP_RADIUS then
+                moveNpcTo(npc, campPos)
+            end
+        end
+    end)
+end
+
+TimeService.onDawn(function(_day)
+    local camps = WorldService.getCampPositions()
+    for i, campPos in camps do
+        local toSpawn = math.random(GameConfig.CAMP_SPAWN_MIN, GameConfig.CAMP_SPAWN_MAX)
+        for _ = 1, toSpawn do
+            spawnVagrant(i, campPos)
+        end
+    end
+end)
+
+-- ── Hiring logic ──────────────────────────────────────────────────────────
+
+-- Called when a crowned player drops coins; check for nearby vagrant
+local function tryHireVagrant(player: Player, pos: Vector3)
+    for _, npc in _npcs do
+        if npc.state ~= "InCamp" and npc.state ~= "Wandering" then continue end
+        if (getNpcPosition(npc) - pos).Magnitude > GameConfig.HIRE_COIN_RADIUS then continue end
+        -- Cost 1 coin
+        if not CoinService.spend(player.UserId, 1) then continue end
+        npc.state = "HiredWalking"
+        local campIdx = npc.campId
+        if campIdx then
+            _campCounts[campIdx] = math.max(0, (_campCounts[campIdx] or 1) - 1)
+        end
+        local town = WorldService.getTownCenterPos()
+        moveNpcTo(npc, town)
+        print("[NpcService] Vagrant hired, walking to town")
+
+        -- When vagrant reaches town center, await a tool
+        task.spawn(function()
+            while npc.state == "HiredWalking" do
+                task.wait(1)
+                local npcPos = getNpcPosition(npc)
+                if (npcPos - town).Magnitude < 5 then
+                    npc.state = "IdleAtTown"
+                    NpcService.assignTool(npc)
+                end
+            end
+        end)
+        return  -- hire one vagrant per drop
+    end
+end
+
+-- ── Public API ────────────────────────────────────────────────────────────
+
+function NpcService.getNpcs(): {NpcData}
+    local list = {}
+    for _, npc in _npcs do table.insert(list, npc) end
+    return list
+end
+
+function NpcService.getWorkers(): {NpcData}
+    local list = {}
+    for _, npc in _npcs do
+        if npc.profession ~= "Vagrant" then table.insert(list, npc) end
+    end
+    return list
+end
+
+function NpcService.getVagrantsNear(pos: Vector3, radius: number): {NpcData}
+    local list = {}
+    for _, npc in _npcs do
+        if npc.state == "InCamp"
+            and (getNpcPosition(npc) - pos).Magnitude <= radius then
+            table.insert(list, npc)
+        end
+    end
+    return list
+end
+
+-- Dropped tool instances available for pickup (set by hitWorker)
+type GroundToolEntry = { instance: BasePart, pos: Vector3 }
+local _droppedTools: {GroundToolEntry} = {}
+
+local function startBuilderLoop(npc: NpcData)
+    npc.profession = "Builder"
+    npc.maxPurse   = GameConfig.BUILDER_PURSE_MAX
+    local humanoid = npc.instance:FindFirstChildOfClass("Humanoid")
+    if humanoid then humanoid.WalkSpeed = GameConfig.WORKER_WALK_SPEED end
+
+    task.spawn(function()
+        while npc.instance.Parent do
+            task.wait(1)
+            if not npc.instance.Parent then break end
+            if npc.state ~= "Working" then continue end
+
+            -- Look for a marked tree to chop
+            local marked = WorldService.getMarkedTrees()
+            if #marked == 0 then continue end
+
+            -- Find nearest
+            local nearest: typeof(marked[1])? = nil
+            local nearestDist = math.huge
+            local myPos = getNpcPosition(npc)
+            for _, tree in marked do
+                local d = (tree.position - myPos).Magnitude
+                if d < nearestDist then
+                    nearestDist = d
+                    nearest     = tree
+                end
+            end
+            if not nearest then continue end
+
+            -- Walk to tree
+            moveNpcTo(npc, nearest.position)
+            task.wait(nearestDist / GameConfig.WORKER_WALK_SPEED + 1)
+
+            -- State may have changed during travel (e.g., dusk fired)
+            if npc.state ~= "Working" then continue end
+
+            -- Confirm still valid (not chopped by someone else)
+            local trees = WorldService.getMarkedTrees()
+            local stillValid = false
+            for _, t in trees do if t.id == nearest.id then stillValid = true break end end
+            if not stillValid then continue end
+
+            -- Chop animation (wait)
+            task.wait(GameConfig.TREE_CHOP_DURATION)
+
+            -- State may have changed during chop (e.g., dusk fired)
+            if npc.state ~= "Working" then continue end
+
+            -- Pay the marker
+            local markerId = nearest.markerId
+            if markerId then
+                local payout = nearest.markCost * GameConfig.TREE_MARK_RETURN_MULT
+                CoinService.award(markerId, payout)
+                print("[NpcService] Builder chopped tree, paid", payout, "to player", markerId)
+            end
+
+            WorldService.removeTree(nearest.id)
+        end
+    end)
+end
+
+function NpcService.assignTool(npc: NpcData)
+    -- Find nearest available hammer shop Part in workspace
+    local hammerShop = workspace:FindFirstChild("HammerShop")
+    if not hammerShop then
+        print("[NpcService] No hammer shop — vagrant idles at town")
+        return
+    end
+    -- Vagrant walks to shop
+    moveNpcTo(npc, (hammerShop :: BasePart).Position)
+    task.spawn(function()
+        task.wait(4) -- travel time approximation
+        npc.state = "Working"
+        startBuilderLoop(npc)
+        print("[NpcService] Vagrant became Builder")
+    end)
+end
+
+function NpcService.hitWorker(npc: NpcData)
+    if npc.state == "Toolless" then
+        -- Second hit: revert to vagrant, begin wandering
+        npc.profession = "Vagrant"
+        npc.state      = "Wandering"
+        npc.tool       = nil
+        npc.campId     = nil
+        print("[NpcService] Worker reverted to wandering vagrant")
+        return
+    end
+
+    -- First hit: drop tool
+    npc.state = "Toolless"
+    local pos = getNpcPosition(npc)
+    local p   = Instance.new("Part")
+    p.Name    = "DroppedTool"
+    p.Size    = Vector3.new(1, 1, 3)
+    p.BrickColor = BrickColor.new("Medium stone grey")
+    p.Position = pos + Vector3.new(0, 1, 0)
+    p.Parent  = workspace
+    p:SetAttribute("ToolType", "Hammer")
+    WorldService.registerGroundTool(p, pos)
+    npc.tool  = nil
+    print("[NpcService] Worker lost tool")
+end
+
+function NpcService.tryHireFromDrop(player: Player, pos: Vector3)
+    tryHireVagrant(player, pos)
+end
+
+-- Periodic coin collection for all workers
+task.spawn(function()
+    while true do
+        task.wait(2)
+        for _, npc in _npcs do
+            if npc.profession ~= "Vagrant" and npc.state == "Working" then
+                collectNearbyCoins(npc)
+            end
+        end
+    end
+end)
+
+-- Initial spawn: seed each camp with 1 vagrant on game start
+task.delay(1, function()
+    local camps = WorldService.getCampPositions()
+    for i, campPos in camps do
+        spawnVagrant(i, campPos)
+    end
+end)
+
+TimeService.onDusk(function()
+    local wallPos = GameConfig.TOWN_CENTER_POS  -- Phase 1: return to town center
+    for _, npc in _npcs do
+        if npc.profession ~= "Vagrant" then
+            npc.state = "ReturningToWalls"
+            moveNpcTo(npc, wallPos + Vector3.new(math.random(-5,5), 0, math.random(-5,5)))
+            task.delay(5, function()
+                if npc.state == "ReturningToWalls" then npc.state = "AtWalls" end
+            end)
+        end
+    end
+end)
+
+TimeService.onDawn(function(_day)
+    for _, npc in _npcs do
+        if npc.profession == "Builder" then
+            npc.state = "Working"
+            -- Dawn free repairs stub — actual repair logic in Phase 3
+            print("[NpcService] Builder ready for work on day", _day)
+        end
+    end
+end)
+
+return NpcService
