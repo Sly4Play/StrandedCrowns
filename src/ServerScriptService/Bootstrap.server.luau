@@ -48,10 +48,24 @@ end)
 
 -- ── Remote handlers ────────────────────────────────────────────────────────
 
+local function scatterCoinsOnFail(player: Player, attempted: number)
+    local char  = player.Character
+    local pos   = char and char.PrimaryPart and char.PrimaryPart.Position
+    local purse = CoinService.getPurse(player.UserId)
+    if pos and purse > 0 then
+        local drop = math.min(purse, attempted)
+        CoinService.spend(player.UserId, drop)
+        CoinService.spawnGroundCoins(pos, drop, player.UserId)
+    end
+end
+
 Remotes.BuyTool.OnServerInvoke = function(player: Player): boolean
     local hammerShop = workspace:FindFirstChild("HammerShop")
     if not hammerShop then return false end
-    if not CoinService.spend(player.UserId, GameConfig.HAMMER_COST) then return false end
+    if not CoinService.spend(player.UserId, GameConfig.HAMMER_COST) then
+        scatterCoinsOnFail(player, GameConfig.HAMMER_COST)
+        return false
+    end
     local shopPart = hammerShop :: BasePart
     local toolPart = Instance.new("Part")
     toolPart.Name        = "Hammer"
@@ -69,7 +83,10 @@ end
 
 Remotes.MarkTree.OnServerInvoke = function(player: Player, treeId: string): boolean
     if WorldService.getPlayerMarkCount(player.UserId) >= GameConfig.TREE_MAX_PLAYER_MARKS then return false end
-    if not CoinService.spend(player.UserId, GameConfig.TREE_MARK_COST) then return false end
+    if not CoinService.spend(player.UserId, GameConfig.TREE_MARK_COST) then
+        scatterCoinsOnFail(player, GameConfig.TREE_MARK_COST)
+        return false
+    end
     local ok = WorldService.markTree(treeId, player.UserId, GameConfig.TREE_MARK_COST)
     if not ok then CoinService.award(player.UserId, GameConfig.TREE_MARK_COST) end
     return ok

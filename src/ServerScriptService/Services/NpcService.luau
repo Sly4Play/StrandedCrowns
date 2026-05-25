@@ -223,9 +223,11 @@ local function spawnHomeless(campIdx: number, campPos: Vector3)
                 continue
             end
 
-            -- Nothing nearby: keep homeless inside camp radius
-            if npc.state == "InCamp" and (pos - campPos).Magnitude > GameConfig.CAMP_RADIUS then
-                moveNpcTo(npc, campPos)
+            -- Nothing nearby: wander randomly within camp
+            if npc.state == "InCamp" then
+                local angle = math.random() * 2 * math.pi
+                local dist  = math.random() * GameConfig.CAMP_RADIUS
+                moveNpcTo(npc, campPos + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
             end
         end
     end)
@@ -318,13 +320,12 @@ local function startWorkerLoop(npc: NpcData)
 
             local marked = WorldService.getMarkedTrees()
             if #marked == 0 then
-                local town = WorldService.getTownCenterPos()
-                local r = GameConfig.TOWN_RADIUS
-                if (getNpcPosition(npc) - town).Magnitude > r then
-                    local angle = math.random() * 2 * math.pi
-                    local dist  = math.random() * r
-                    moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
-                end
+                -- No trees: roam the outer ring of town (60-100% of radius)
+                local town  = WorldService.getTownCenterPos()
+                local r     = GameConfig.TOWN_RADIUS
+                local angle = math.random() * 2 * math.pi
+                local dist  = r * (0.6 + math.random() * 0.4)
+                moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
                 task.wait(5)
                 continue
             end
@@ -413,13 +414,13 @@ function NpcService.assignTool(npc: NpcData)
     npc.state = "IdleAtTown"
     local town = WorldService.getTownCenterPos()
 
-    -- Wander visibly inside town while waiting for a tool
+    -- Jobless wander in the inner half of town
     task.spawn(function()
         while npc.state == "IdleAtTown" do
             task.wait(math.random(3, 7))
             if npc.state ~= "IdleAtTown" then break end
             local angle = math.random() * 2 * math.pi
-            local dist  = math.random() * GameConfig.TOWN_RADIUS
+            local dist  = math.random() * (GameConfig.TOWN_RADIUS * 0.5)
             moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
         end
     end)
