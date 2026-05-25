@@ -1,13 +1,14 @@
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 local Remotes    = require(game:GetService("ReplicatedStorage").Shared.Remotes)
+local Players    = game:GetService("Players")
 
 -- purses[entityId] = { amount: number, max: number }
 local purses: {[number]: {amount: number, max: number}} = {}
 
--- groundCoins: list of active coin objects
 type GroundCoin = {
     instance: BasePart, amount: number,
     ownerId: number, droppedAt: number,
+    claimed: boolean,
 }
 local groundCoins: {GroundCoin} = {}
 
@@ -17,8 +18,6 @@ local function notifyPlayer(player: Player)
         Remotes.CoinChanged:FireClient(player, purses[id].amount)
     end
 end
-
-local Players = game:GetService("Players")
 
 local CoinService = {}
 
@@ -57,8 +56,7 @@ local function makeCoinPart(pos: Vector3, amount: number): BasePart
     p.Size       = Vector3.new(0.5, 0.5, 0.5)
     p.Shape      = Enum.PartType.Ball
     p.BrickColor = BrickColor.new("Bright yellow")
-    p.Position   = pos + Vector3.new(
-        math.random(-2, 2), 1, math.random(-2, 2))
+    p.Position   = pos + Vector3.new(math.random(-2, 2), 1, math.random(-2, 2))
     p.Parent     = workspace
     p:SetAttribute("Amount", amount)
     return p
@@ -75,12 +73,12 @@ function CoinService.spawnGroundCoins(pos: Vector3, total: number, ownerId: numb
         amount    = persist,
         ownerId   = ownerId,
         droppedAt = now,
+        claimed   = false,
     }
     table.insert(groundCoins, entry)
 
-    local pickedUp = false
     part.Touched:Connect(function(hit)
-        if pickedUp then return end
+        if entry.claimed then return end
         local character = hit.Parent
         local player    = Players:GetPlayerFromCharacter(character)
         if not player then return end
@@ -88,7 +86,7 @@ function CoinService.spawnGroundCoins(pos: Vector3, total: number, ownerId: numb
         if player.UserId == ownerId then
             if tick() - entry.droppedAt < GameConfig.OWN_COIN_PICKUP_DELAY then return end
         end
-        pickedUp = true   -- claim before any yield or async call
+        entry.claimed = true
         CoinService.award(player.UserId, entry.amount)
         for i = #groundCoins, 1, -1 do
             if groundCoins[i].instance == part then table.remove(groundCoins, i) break end
@@ -97,13 +95,28 @@ function CoinService.spawnGroundCoins(pos: Vector3, total: number, ownerId: numb
     end)
 
     task.delay(GameConfig.GROUND_COIN_DESPAWN, function()
-        if part.Parent then
+        if part.Parent and not entry.claimed then
+            entry.claimed = true
             for i = #groundCoins, 1, -1 do
                 if groundCoins[i].instance == part then table.remove(groundCoins, i) break end
             end
             part:Destroy()
         end
     end)
+end
+
+-- Returns the coin amount and removes it from the world; 0 if already claimed.
+function CoinService.claimGroundCoin(part: BasePart): number
+    for i = #groundCoins, 1, -1 do
+        local coin = groundCoins[i]
+        if coin.instance ~= part then continue end
+        if coin.claimed then return 0 end
+        coin.claimed = true
+        table.remove(groundCoins, i)
+        if part.Parent then part:Destroy() end
+        return coin.amount
+    end
+    return 0
 end
 
 function CoinService.dropFromHit(id: number, pos: Vector3)
@@ -132,6 +145,32 @@ function CoinService.removeGroundCoin(part: BasePart)
         end
     end
 end
+
+-- Proximity pickup for players: award ground coins within COIN_PICKUP_RADIUS
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        local now = tick()
+        for _, player in Players:GetPlayers() do
+            local char = player.Character
+            if not char or not char.PrimaryPart then continue end
+            local pos = char.PrimaryPart.Position
+            for i = #groundCoins, 1, -1 do
+                local coin = groundCoins[i]
+                if coin.claimed then continue end
+                if not coin.instance.Parent then continue end
+                if coin.ownerId == player.UserId
+                    and now - coin.droppedAt < GameConfig.OWN_COIN_PICKUP_DELAY then continue end
+                if (coin.instance.Position - pos).Magnitude <= GameConfig.COIN_PICKUP_RADIUS then
+                    coin.claimed = true
+                    table.remove(groundCoins, i)
+                    coin.instance:Destroy()
+                    CoinService.award(player.UserId, coin.amount)
+                end
+            end
+        end
+    end
+end)
 
 Players.PlayerAdded:Connect(function(p)
     CoinService.init(p.UserId, GameConfig.PLAYER_PURSE_MAX)

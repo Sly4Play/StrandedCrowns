@@ -25,8 +25,9 @@ return {
     -- Economy
     STARTER_COINS          = 10,
     HAMMER_COST            = 3,
-    TREE_MARK_COST         = 5,
-    TREE_MARK_RETURN_MULT  = 2,
+    TREE_MARK_COST         = 1,
+    TREE_CHOP_REWARD       = 2,   -- coins paid to the builder who chops
+    TREE_MARK_RETURN_MULT  = 2,   -- unused in Phase 1, kept for Phase 2
     GROUND_COIN_DESPAWN    = 120,   -- seconds
     OWN_COIN_PICKUP_DELAY  = 5,     -- seconds
 
@@ -50,11 +51,13 @@ return {
     VAGRANT_WALK_SPEED = 10,
 
     -- Coin pickup
-    COIN_PICKUP_RADIUS   = 4,
-    HIRE_COIN_RADIUS     = 6,
-    NPC_OVERFLOW_RADIUS  = 20,
+    COIN_PICKUP_RADIUS        = 2,
+    HIRE_COIN_RADIUS          = 6,
+    NPC_OVERFLOW_RADIUS       = 20,
+    WORKER_COIN_PICKUP_DELAY  = 2,   -- seconds workers wait before collecting nearby ground coins
 
     -- Trees
+    TREE_MAX_PLAYER_MARKS = 2,
     TREE_COUNT           = 25,
     TREE_MIN_DIST_TOWN   = 15,
     TREE_MIN_DIST_PORTAL = 12,

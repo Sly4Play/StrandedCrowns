@@ -11,11 +11,11 @@ screenGui.Name         = "GameHud"
 screenGui.ResetOnSpawn = false
 screenGui.Parent       = playerGui
 
--- Coin counter (top-left)
+-- Coin counter (top-right, clear of Roblox chat)
 local coinFrame = Instance.new("Frame")
 coinFrame.Name            = "CoinFrame"
 coinFrame.Size            = UDim2.new(0, 160, 0, 48)
-coinFrame.Position        = UDim2.new(0, 16, 0, 16)
+coinFrame.Position        = UDim2.new(1, -176, 0, 16)
 coinFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 coinFrame.BackgroundTransparency = 0.4
 coinFrame.Parent          = screenGui

@@ -5,7 +5,7 @@ local _Types      = require(Shared.Types)
 local _Remotes    = require(Shared.Remotes)
 
 assert(GameConfig.PLAYER_PURSE_MAX == 25, "PLAYER_PURSE_MAX mismatch")
-assert(GameConfig.TREE_MARK_COST   ==  5, "TREE_MARK_COST mismatch")
+assert(GameConfig.TREE_MARK_COST   ==  1, "TREE_MARK_COST mismatch")
 print("[Bootstrap] Shared modules OK")
 
 local TimeService = require(Services.TimeService)
@@ -30,14 +30,21 @@ Remotes.DropCoins.OnServerEvent:Connect(function(player: Player, amount: number)
             if MayorSvc.isBankOpen() and (pos - MayorSvc.getPosition()).Magnitude < GameConfig.MAYOR_DEPOSIT_RADIUS then
                 MayorSvc.deposit(player.UserId, amount)
             else
-                -- Try hiring a vagrant
-                NpcService.tryHireFromDrop(player, pos)
+                if CoinService.spend(player.UserId, amount) then
+                    CoinService.spawnGroundCoins(pos, amount, player.UserId)
+                end
             end
         end
     end
 end)
 
 local GreedService = require(Services.GreedService)
+
+Remotes.DropFood.OnServerEvent:Connect(function(player: Player)
+    local char = player.Character
+    local pos  = char and char.PrimaryPart and char.PrimaryPart.Position
+    if pos then WorldService.spawnFood(pos) end
+end)
 
 -- ── Remote handlers ────────────────────────────────────────────────────────
 
@@ -59,6 +66,7 @@ Remotes.BuyTool.OnServerInvoke = function(player: Player): boolean
 end
 
 Remotes.MarkTree.OnServerInvoke = function(player: Player, treeId: string): boolean
+    if WorldService.getPlayerMarkCount(player.UserId) >= GameConfig.TREE_MAX_PLAYER_MARKS then return false end
     if not CoinService.spend(player.UserId, GameConfig.TREE_MARK_COST) then return false end
     local ok = WorldService.markTree(treeId, player.UserId, GameConfig.TREE_MARK_COST)
     if not ok then CoinService.award(player.UserId, GameConfig.TREE_MARK_COST) end

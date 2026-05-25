@@ -57,45 +57,51 @@ local function getNpcPosition(npc: NpcData): Vector3
     return root and root.Position or Vector3.new(0, 0, 0)
 end
 
--- Collect ground coins near NPC if under max purse
 local function collectNearbyCoins(npc: NpcData)
-    local pos      = getNpcPosition(npc)
-    local radius   = GameConfig.COIN_PICKUP_RADIUS
+    local pos = getNpcPosition(npc)
+    local now = tick()
+
+    -- Collect ground coins within pickup radius; delay gives players first priority
     for _, coin in CoinService.getGroundCoins() do
         if npc.purse >= npc.maxPurse then break end
-        if coin.instance.Parent and (coin.instance.Position - pos).Magnitude < radius then
-            local canTake = npc.maxPurse - npc.purse
-            local take    = math.min(coin.amount, canTake)
-            npc.purse    += take
-            -- remove coin from world
-            CoinService.removeGroundCoin(coin.instance)
+        if coin.claimed or not coin.instance.Parent then continue end
+        if now - coin.droppedAt < GameConfig.WORKER_COIN_PICKUP_DELAY then continue end
+        if (coin.instance.Position - pos).Magnitude > GameConfig.COIN_PICKUP_RADIUS then continue end
+        local canTake = npc.maxPurse - npc.purse
+        local amount  = CoinService.claimGroundCoin(coin.instance)
+        if amount > 0 then
+            npc.purse += math.min(amount, canTake)
         end
     end
-    -- Overflow: drop to nearest player
+
+    -- Bag full: leave coins on ground for other workers or 2-min despawn
     if npc.purse >= npc.maxPurse then
-        local nearestPlayer: Player?
-        local nearestDist = GameConfig.NPC_OVERFLOW_RADIUS
-        for _, player in Players:GetPlayers() do
-            local char = player.Character
-            if char and char.PrimaryPart then
-                local d = (char.PrimaryPart.Position - pos).Magnitude
-                if d < nearestDist then
-                    nearestDist    = d
-                    nearestPlayer  = player
-                end
-            end
-        end
-        if nearestPlayer then
-            CoinService.award(nearestPlayer.UserId, npc.purse)
-            npc.purse = 0
-        else
-            CoinService.spawnGroundCoins(pos, npc.purse, 0)
-            npc.purse = 0
-        end
+        CoinService.spawnGroundCoins(pos, npc.purse, 0)
+        npc.purse = 0
     end
 end
 
 local NpcService = {}
+
+local function becomeJobless(npc: NpcData, campId: number?)
+    npc.state  = "Jobless"
+    npc.campId = nil
+    if campId then
+        _campCounts[campId] = math.max(0, (_campCounts[campId] or 1) - 1)
+    end
+    local town = WorldService.getTownCenterPos()
+    moveNpcTo(npc, town)
+    task.spawn(function()
+        while npc.state == "Jobless" do
+            task.wait(1)
+            if (getNpcPosition(npc) - town).Magnitude < 5 then
+                npc.state = "IdleAtTown"
+                NpcService.assignTool(npc)
+                break
+            end
+        end
+    end)
+end
 
 -- ── Vagrant camp spawning ─────────────────────────────────────────────────
 
@@ -116,12 +122,100 @@ local function spawnVagrant(campIdx: number, campPos: Vector3)
     _npcs[id] = npc
     _campCounts[campIdx] = count + 1
 
-    -- Keep vagrant within camp radius
+    -- Camp behavior: food (global) > coins (8 studs) > enforce bounds
     task.spawn(function()
-        while npc.state == "InCamp" do
-            task.wait(3)
+        while npc.state == "InCamp" or npc.state == "Wandering" do
+            task.wait(1)
+            if npc.state ~= "InCamp" and npc.state ~= "Wandering" then break end
+
             local pos = getNpcPosition(npc)
-            if (pos - campPos).Magnitude > GameConfig.CAMP_RADIUS then
+
+            -- Priority 1: food anywhere on the map — only 1 vagrant responds per item
+            local foods = WorldService.getAvailableFood()
+            if #foods > 0 then
+                local nearestFood: BasePart? = nil
+                local nearestFoodDist = math.huge
+                for _, food in foods do
+                    local d = (food.Position - pos).Magnitude
+                    if d < nearestFoodDist then
+                        nearestFoodDist = d
+                        nearestFood     = food
+                    end
+                end
+                if nearestFood and WorldService.reserveFood(nearestFood) then
+                    moveNpcTo(npc, nearestFood.Position)
+                    local reached   = false
+                    local coinHired = false
+                    for _ = 1, 40 do
+                        task.wait(1)
+                        if npc.state ~= "InCamp" and npc.state ~= "Wandering" then break end
+                        if not nearestFood.Parent then break end
+                        local npcPos = getNpcPosition(npc)
+                        -- Player-dropped coin nearby hijacks the vagrant before it reaches food
+                        for _, coin in CoinService.getGroundCoins() do
+                            if coin.claimed or not coin.instance.Parent then continue end
+                            if coin.ownerId == 0 then continue end  -- ignore worker overflow
+                            if (coin.instance.Position - npcPos).Magnitude <= GameConfig.COIN_PICKUP_RADIUS then
+                                local amount = CoinService.claimGroundCoin(coin.instance)
+                                if amount > 0 then
+                                    npc.maxPurse = GameConfig.WORKER_PURSE_MAX
+                                    npc.purse    = math.min(npc.purse + amount, npc.maxPurse)
+                                    nearestFood:SetAttribute("Reserved", false)  -- free for next vagrant
+                                    coinHired = true
+                                end
+                                break
+                            end
+                        end
+                        if coinHired then break end
+                        if (npcPos - nearestFood.Position).Magnitude < 2 then
+                            reached = true
+                            break
+                        end
+                    end
+                    if coinHired or (reached and nearestFood.Parent) then
+                        if reached then WorldService.consumeFood(nearestFood) end
+                        becomeJobless(npc, npc.campId)
+                    elseif nearestFood.Parent then
+                        nearestFood:SetAttribute("Reserved", false)
+                    end
+                    continue
+                end
+            end
+
+            -- Priority 2: player-dropped coin within pickup radius (ownerId > 0 = player)
+            local coins = CoinService.getGroundCoins()
+            local nearestCoin = nil
+            local nearestCoinDist = GameConfig.COIN_PICKUP_RADIUS
+            for _, coin in coins do
+                if coin.claimed or not coin.instance.Parent then continue end
+                if coin.ownerId == 0 then continue end  -- ignore worker overflow coins
+                local d = (coin.instance.Position - pos).Magnitude
+                if d < nearestCoinDist then
+                    nearestCoinDist = d
+                    nearestCoin     = coin
+                end
+            end
+            if nearestCoin then
+                moveNpcTo(npc, nearestCoin.instance.Position)
+                for _ = 1, 8 do
+                    task.wait(0.5)
+                    if npc.state ~= "InCamp" and npc.state ~= "Wandering" then break end
+                    if nearestCoin.claimed or not nearestCoin.instance.Parent then break end
+                    if (getNpcPosition(npc) - nearestCoin.instance.Position).Magnitude < 2 then
+                        local amount = CoinService.claimGroundCoin(nearestCoin.instance)
+                        if amount > 0 then
+                            npc.maxPurse = GameConfig.WORKER_PURSE_MAX
+                            npc.purse    = math.min(npc.purse + amount, npc.maxPurse)
+                            becomeJobless(npc, npc.campId)
+                        end
+                        break
+                    end
+                end
+                continue
+            end
+
+            -- Nothing nearby: keep vagrant inside camp radius
+            if npc.state == "InCamp" and (pos - campPos).Magnitude > GameConfig.CAMP_RADIUS then
                 moveNpcTo(npc, campPos)
             end
         end
@@ -216,7 +310,14 @@ local function startBuilderLoop(npc: NpcData)
 
             -- Look for a marked tree to chop
             local marked = WorldService.getMarkedTrees()
-            if #marked == 0 then continue end
+            if #marked == 0 then
+                local town = WorldService.getTownCenterPos()
+                if (getNpcPosition(npc) - town).Magnitude > 15 then
+                    moveNpcTo(npc, town + Vector3.new(math.random(-8, 8), 0, math.random(-8, 8)))
+                end
+                task.wait(5)
+                continue
+            end
 
             -- Find nearest
             local nearest: typeof(marked[1])? = nil
@@ -250,12 +351,11 @@ local function startBuilderLoop(npc: NpcData)
             -- State may have changed during chop (e.g., dusk fired)
             if npc.state ~= "Working" then continue end
 
-            -- Pay the marker
-            local markerId = nearest.markerId
-            if markerId then
-                local payout = nearest.markCost * GameConfig.TREE_MARK_RETURN_MULT
-                CoinService.award(markerId, payout)
-                print("[NpcService] Builder chopped tree, paid", payout, "to player", markerId)
+            -- Pay the builder who did the chopping
+            local reward = GameConfig.TREE_CHOP_REWARD
+            if npc.purse + reward <= npc.maxPurse then
+                npc.purse += reward
+                print("[NpcService] Builder earned", reward, "coins from chopping")
             end
 
             WorldService.removeTree(nearest.id)
@@ -267,7 +367,17 @@ function NpcService.assignTool(npc: NpcData)
     -- Find nearest available hammer shop Part in workspace
     local hammerShop = workspace:FindFirstChild("HammerShop")
     if not hammerShop then
-        print("[NpcService] No hammer shop — vagrant idles at town")
+        print("[NpcService] No hammer shop — vagrant mingles at town")
+        npc.state = "IdleAtTown"
+        local town = WorldService.getTownCenterPos()
+        task.spawn(function()
+            while npc.state == "IdleAtTown" do
+                task.wait(math.random(4, 10))
+                if npc.state ~= "IdleAtTown" then break end
+                local offset = Vector3.new(math.random(-8, 8), 0, math.random(-8, 8))
+                moveNpcTo(npc, town + offset)
+            end
+        end)
         return
     end
     -- Vagrant walks to shop

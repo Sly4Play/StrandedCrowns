@@ -213,6 +213,14 @@ function WorldService.getMarkedTrees(): {TreeData}
     return list
 end
 
+function WorldService.getPlayerMarkCount(playerId: number): number
+    local count = 0
+    for _, t in _trees do
+        if t.isMarked and t.markerId == playerId then count += 1 end
+    end
+    return count
+end
+
 function WorldService.markTree(treeId: string, playerId: number, cost: number): boolean
     local t = _trees[treeId]
     if not t or t.isMarked then return false end
@@ -263,6 +271,53 @@ function WorldService.spawnHammerShop()
     _hammerShopSpawned = true
     makeHammerShop(GameConfig.TOWN_CENTER_POS)
     print("[WorldService] Hammer shop spawned")
+end
+
+-- ── Food ─────────────────────────────────────────────────────────────────
+
+local _foodParts: {BasePart} = {}
+
+local function makeFood(pos: Vector3): BasePart
+    local p      = Instance.new("Part")
+    p.Name       = "Food"
+    p.Size       = Vector3.new(0.8, 0.8, 0.8)
+    p.Shape      = Enum.PartType.Ball
+    p.BrickColor = BrickColor.new("Bright orange")
+    p.Anchored   = true
+    p.Position   = pos + Vector3.new(0, 0.4, 0)
+    p.Parent     = workspace
+    p:SetAttribute("Reserved", false)
+    return p
+end
+
+function WorldService.spawnFood(pos: Vector3)
+    table.insert(_foodParts, makeFood(pos))
+end
+
+function WorldService.getAvailableFood(): {BasePart}
+    local available = {}
+    for i = #_foodParts, 1, -1 do
+        local p = _foodParts[i]
+        if not p.Parent then
+            table.remove(_foodParts, i)
+        elseif not p:GetAttribute("Reserved") then
+            table.insert(available, p)
+        end
+    end
+    return available
+end
+
+function WorldService.reserveFood(part: BasePart): boolean
+    if not part.Parent or part:GetAttribute("Reserved") then return false end
+    part:SetAttribute("Reserved", true)
+    return true
+end
+
+function WorldService.consumeFood(part: BasePart)
+    for i = #_foodParts, 1, -1 do
+        if _foodParts[i] == part then table.remove(_foodParts, i) break end
+    end
+    if part.Parent then part:Destroy() end
 end
 
 function WorldService.onFireLit(cb: () -> ()): RBXScriptConnection
