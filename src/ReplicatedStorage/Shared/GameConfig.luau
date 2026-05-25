@@ -68,7 +68,7 @@ return {
     -- Tool shops / racks
     RACK_MAX_TOOLS  = 4,    -- max tools on any shop rack at once
     HAMMER_COST     = 3,
-    BOW_COST        = 3,
+    BOW_COST        = 5,
 
     -- Hunter
     HUNTER_PURSE_MAX = 8,

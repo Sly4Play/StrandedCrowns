@@ -117,7 +117,7 @@ local function becomeJobless(npc: NpcData, campId: number?)
     task.spawn(function()
         while npc.state == "Jobless" do
             task.wait(1)
-            if (getNpcPosition(npc) - town).Magnitude < 5 then
+            if (getNpcPosition(npc) - town).Magnitude < 10 then
                 npc.state = "IdleAtTown"
                 NpcService.assignTool(npc)
                 break
@@ -291,7 +291,7 @@ local function tryHireHomeless(player: Player, pos: Vector3)
         task.spawn(function()
             while npc.state == "HiredWalking" do
                 task.wait(1)
-                if (getNpcPosition(npc) - town).Magnitude < 5 then
+                if (getNpcPosition(npc) - town).Magnitude < 10 then
                     npc.state = "IdleAtTown"
                     NpcService.assignTool(npc)
                 end
@@ -519,7 +519,7 @@ local function fetchTool(npc: NpcData)
                 task.wait(0.5)
                 if npc.state ~= "FetchingTool" then return end
                 if not nearestRack.Parent then NpcService.assignTool(npc) return end
-                if (getNpcPosition(npc) - nearestRack.Position).Magnitude < 5 then
+                if (getNpcPosition(npc) - nearestRack.Position).Magnitude < 10 then
                     local toolType = WorldService.takeToolFromRack(nearestRack)
                     if not toolType then
                         -- Another NPC claimed it first; re-poll
@@ -576,21 +576,9 @@ function NpcService.assignTool(npc: NpcData)
         local lastWander  = 0
         local wanderDelay = math.random(3, 7)
         while npc.state == "IdleAtTown" and (npc :: any)._gen == gen do
-            task.wait(1)
             if npc.state ~= "IdleAtTown" or (npc :: any)._gen ~= gen then break end
 
-            -- Wander periodically within inner half of town
-            local now = tick()
-            if now - lastWander >= wanderDelay then
-                lastWander   = now
-                wanderDelay  = math.random(3, 7)
-                setNpcSpeed(npc, GameConfig.NPC_WANDER_SPEED)
-                local angle = math.random() * 2 * math.pi
-                local dist  = math.random() * (GameConfig.TOWN_RADIUS * 0.5)
-                moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
-            end
-
-            -- Check for tools: shop racks (primary) or dropped ground tools (secondary)
+            -- Tool check is FIRST — tools are priority #1 for idle jobless
             local hasTools = #WorldService.getShopsWithTools() > 0
             if not hasTools then
                 for _, t in WorldService.getGroundTools() do
@@ -604,6 +592,19 @@ function NpcService.assignTool(npc: NpcData)
                 fetchTool(npc)
                 if npc.state == "FetchingTool" then break end
             end
+
+            -- Wander only when no tools are available
+            local now = tick()
+            if now - lastWander >= wanderDelay then
+                lastWander   = now
+                wanderDelay  = math.random(3, 7)
+                setNpcSpeed(npc, GameConfig.NPC_WANDER_SPEED)
+                local angle = math.random() * 2 * math.pi
+                local dist  = math.random() * (GameConfig.TOWN_RADIUS * 0.5)
+                moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
+            end
+
+            task.wait(0.5)
         end
     end)
 end
