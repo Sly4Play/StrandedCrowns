@@ -95,3 +95,42 @@ end
 Remotes.BankWithdraw.OnServerInvoke = function(player: Player, amount: number): boolean
     return MayorService.withdraw(player.UserId, amount)
 end
+
+local _firepitLevel    = 0
+local _island2Unlocked = false  -- set true when Island 2 is unlocked (Phase 2)
+
+Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
+    local costs     = GameConfig.FIREPIT_UPGRADE_COSTS
+    local nextLevel = _firepitLevel + 1
+    if nextLevel > #costs then return false end
+    -- Levels 3 and 4 (costs[3]=12, costs[4]=14) locked until Island 2
+    if nextLevel >= 3 and not _island2Unlocked then return false end
+    local cost = costs[nextLevel]
+    if not CoinService.spend(player.UserId, cost) then
+        scatterCoinsOnFail(player, cost)
+        return false
+    end
+    _firepitLevel = nextLevel
+    local firePit = workspace:FindFirstChild("FirePit") :: BasePart?
+    if firePit then
+        local fire = firePit:FindFirstChildOfClass("Fire")
+        if fire then fire.Size = 6 + _firepitLevel * 2 end
+    end
+    if _firepitLevel == 1 then
+        WorldService.spawnTownStructures()
+    end
+    local nextCost = costs[_firepitLevel + 1]
+    Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nextCost)
+    print("[Bootstrap] Firepit upgraded to level", _firepitLevel, "by", player.Name)
+    return true
+end
+
+Remotes.MarkBoat.OnServerInvoke = function(player: Player): boolean
+    if not CoinService.spend(player.UserId, GameConfig.BOAT_REPAIR_COST) then
+        scatterCoinsOnFail(player, GameConfig.BOAT_REPAIR_COST)
+        return false
+    end
+    local ok = WorldService.markBoatForRepair()
+    if not ok then CoinService.award(player.UserId, GameConfig.BOAT_REPAIR_COST) end
+    return ok
+end

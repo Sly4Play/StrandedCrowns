@@ -8,12 +8,15 @@ local _groundTools: {GroundTool} = {}
 type TreeData = {
     id: string, instance: Model, position: Vector3,
     isMarked: boolean, markerId: number?, markCost: number,
+    treeSize: number,
 }
 local _trees: {[string]: TreeData} = {}
 
 local _campPositions: {Vector3} = {}
 local _portals: {BasePart} = {}
 local _hammerShopSpawned = false
+local _structuresSpawned = false
+local _boat: BasePart? = nil
 
 local WorldService = {}
 
@@ -30,6 +33,18 @@ local function tooClose(pos: Vector3, others: {Vector3}, minDist: number): boole
     return false
 end
 
+-- Half-width of each tree's canopy footprint (leaves width / 2 + buffer)
+local TREE_FOOTPRINT: {[number]: number} = { [1] = 3, [2] = 5, [3] = 7 }
+
+local function tooCloseToTrees(pos: Vector3, placed: {{pos: Vector3, size: number}}, newSize: number): boolean
+    local newR = TREE_FOOTPRINT[newSize] or 3
+    for _, t in placed do
+        local minDist = newR + (TREE_FOOTPRINT[t.size] or 3)
+        if (pos - t.pos).Magnitude < minDist then return true end
+    end
+    return false
+end
+
 local function makePortal(pos: Vector3): BasePart
     local p      = Instance.new("Part")
     p.Name       = "Portal"
@@ -42,27 +57,43 @@ local function makePortal(pos: Vector3): BasePart
     return p
 end
 
-local function makeTree(id: string, pos: Vector3): Model
+-- treeSize: 1 = small, 2 = medium, 3 = large
+local function makeTree(id: string, pos: Vector3, treeSize: number): Model
     local model = Instance.new("Model")
     model.Name  = "Tree_" .. id
 
+    local trunkW: number; local trunkH: number; local trunkY: number
+    local leavesW: number; local leavesH: number; local leavesY: number
+
+    if treeSize == 3 then        -- Large
+        trunkW  = 3.5;  trunkH  = 18;  trunkY  = 9
+        leavesW = 11;   leavesH = 10;  leavesY = 22.5
+    elseif treeSize == 2 then    -- Medium
+        trunkW  = 2.5;  trunkH  = 12;  trunkY  = 6
+        leavesW = 8;    leavesH = 8;   leavesY = 15
+    else                          -- Small
+        trunkW  = 1.5;  trunkH  = 7;   trunkY  = 3.5
+        leavesW = 5;    leavesH = 6;   leavesY = 9.5
+    end
+
     local trunk      = Instance.new("Part")
     trunk.Name       = "Trunk"
-    trunk.Size       = Vector3.new(1, 4, 1)
+    trunk.Size       = Vector3.new(trunkW, trunkH, trunkW)
     trunk.BrickColor = BrickColor.new("Reddish brown")
     trunk.Anchored   = true
-    trunk.Position   = pos + Vector3.new(0, 2, 0)
+    trunk.Position   = pos + Vector3.new(0, trunkY, 0)
     trunk.Parent     = model
 
     local leaves      = Instance.new("Part")
     leaves.Name       = "Leaves"
-    leaves.Size       = Vector3.new(4, 4, 4)
+    leaves.Size       = Vector3.new(leavesW, leavesH, leavesW)
     leaves.BrickColor = BrickColor.new("Bright green")
     leaves.Anchored   = true
-    leaves.Position   = pos + Vector3.new(0, 6, 0)
+    leaves.Position   = pos + Vector3.new(0, leavesY, 0)
     leaves.Parent     = model
 
     model.PrimaryPart = trunk
+    model:SetAttribute("TreeSize", treeSize)
     model.Parent      = workspace
     return model
 end
@@ -110,10 +141,79 @@ local function makeMound(pos: Vector3)
     p.Parent     = workspace
 end
 
+local function spawnBrokenBoat()
+    local center  = GameConfig.TOWN_CENTER_POS
+    local angle   = math.pi / 6
+    local dist    = GameConfig.ISLAND_RADIUS
+    local pos     = center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+
+    -- Axes at this shore position
+    local outward = Vector3.new( math.cos(angle), 0,  math.sin(angle))
+    local tangent = Vector3.new(-math.sin(angle), 0,  math.cos(angle))
+
+    -- Boat runs along the coast; +Z of CFrame = -tangent (back face along coast)
+    local baseCF = CFrame.fromMatrix(pos, outward, Vector3.new(0, 1, 0), -tangent)
+
+    local function makePart(name: string, sz: Vector3, col: BrickColor,
+                            off: Vector3, extra: CFrame?): Part
+        local p      = Instance.new("Part")
+        p.Name       = name
+        p.Size       = sz
+        p.BrickColor = col
+        p.Material   = Enum.Material.Wood
+        p.Anchored   = true
+        p.CFrame     = baseCF * CFrame.new(off) * (extra or CFrame.identity)
+        p.Parent     = workspace
+        return p :: Part
+    end
+
+    -- Hull at 75% of previous: 12×7.5×45
+    local hull = makePart("BrokenBoat",
+        Vector3.new(12, 7.5, 45), BrickColor.new("Reddish brown"), Vector3.new(0, 3.75, 0))
+    hull:SetAttribute("Level",           0)
+    hull:SetAttribute("Marked",          false)
+    hull:SetAttribute("BuildProgress",   0)
+    hull:SetAttribute("BuildRequired",   GameConfig.BOAT_REPAIR_DURATION)
+    hull:SetAttribute("MaxBuilders",     GameConfig.BOAT_MAX_BUILDERS)
+    hull:SetAttribute("CurrentBuilders", 0)
+
+    -- Deck: sits on hull top (Y=7.5), center at 7.5+0.75=8.25
+    makePart("BoatDeck",  Vector3.new(10.5, 1.5, 39), BrickColor.new("Brown"),
+        Vector3.new(0, 8.25, 0))
+    -- Bow/stern: same Y as hull center, Z = hull half (22.5) + piece half (3.75)
+    makePart("BoatBow",   Vector3.new(9, 7.5, 7.5), BrickColor.new("Reddish brown"),
+        Vector3.new(0, 3.75, 26.25))
+    makePart("BoatStern", Vector3.new(13.5, 7.5, 7.5), BrickColor.new("Reddish brown"),
+        Vector3.new(0, 3.75, -26.25))
+    -- Mast: deck top = 9, mast half = 12 → center Y=21; Z scaled 8→6
+    makePart("BrokenMast", Vector3.new(1.8, 24, 1.8), BrickColor.new("Brown"),
+        Vector3.new(0, 21, 6), CFrame.Angles(math.rad(30), 0, 0))
+    makePart("FallenYard", Vector3.new(1.5, 18, 1.5), BrickColor.new("Brown"),
+        Vector3.new(0, 7.5, 13.5), CFrame.Angles(0, math.pi / 4, math.rad(70)))
+
+    _boat = hull
+    print("[WorldService] Broken boat spawned at", math.floor(pos.X), math.floor(pos.Z))
+end
+
 function WorldService.buildIsland()
     local rng    = Random.new(os.time())
     local center = GameConfig.TOWN_CENTER_POS
     local radius = GameConfig.ISLAND_RADIUS
+
+    -- Remove any default SpawnLocations so ours is the only one
+    for _, child in workspace:GetChildren() do
+        if child:IsA("SpawnLocation") then child:Destroy() end
+    end
+
+    local spawn             = Instance.new("SpawnLocation")
+    spawn.Name              = "TownSpawn"
+    spawn.Size              = Vector3.new(6, 1, 6)
+    spawn.Anchored          = true
+    spawn.CanCollide        = true
+    spawn.Transparency      = 1
+    spawn.Neutral           = true
+    spawn.Position          = center + Vector3.new(0, 1, 0)
+    spawn.Parent            = workspace
 
     makeTownBoundary(center, GameConfig.TOWN_RADIUS)
 
@@ -130,7 +230,10 @@ function WorldService.buildIsland()
         center,
     }
 
+    local placedTrees: {{pos: Vector3, size: number}} = {}
+
     for i = 1, GameConfig.TREE_COUNT do
+        local treeSize = rng:NextInteger(1, 3)
         local pos
         local placed = false
         local attempts = 0
@@ -138,7 +241,8 @@ function WorldService.buildIsland()
             pos = randXZ(rng, 20, radius, 0)
             attempts += 1
             if not tooClose(pos, {center}, GameConfig.TREE_MIN_DIST_TOWN)
-                and not tooClose(pos, portalPositions, GameConfig.TREE_MIN_DIST_PORTAL) then
+                and not tooClose(pos, portalPositions, GameConfig.TREE_MIN_DIST_PORTAL)
+                and not tooCloseToTrees(pos, placedTrees, treeSize) then
                 placed = true
                 break
             end
@@ -147,11 +251,13 @@ function WorldService.buildIsland()
             warn("[WorldService] tree", i, "could not be placed — skipped")
             continue
         end
+        table.insert(placedTrees, { pos = pos, size = treeSize })
         local id    = tostring(i)
-        local model = makeTree(id, pos)
+        local model = makeTree(id, pos, treeSize)
         _trees[id]  = {
             id = id, instance = model, position = pos,
             isMarked = false, markerId = nil, markCost = 0,
+            treeSize = treeSize,
         }
     end
 
@@ -204,6 +310,8 @@ function WorldService.buildIsland()
         makeMound(pos)
     end
 
+    spawnBrokenBoat()
+
     local treeCount = 0
     for _ in _trees do treeCount += 1 end
     print("[WorldService] Island built — portals:", #_portals, "trees:", treeCount, "camps:", #_campPositions)
@@ -250,6 +358,7 @@ end
 function WorldService.markTree(treeId: string, playerId: number, cost: number): boolean
     local t = _trees[treeId]
     if not t or t.isMarked then return false end
+    if t.treeSize ~= 1 then return false end
     t.isMarked = true
     t.markerId = playerId
     t.markCost = cost
@@ -346,6 +455,88 @@ function WorldService.consumeFood(part: BasePart)
     if part.Parent then part:Destroy() end
 end
 
+-- 4 pairs of (tower + barricade) at the N/E/S/W positions on the town boundary.
+-- Each pair has the tower and barricade side-by-side, leaving a ~12-stud opening
+-- at each cardinal gap for gates.  Barricades become gates at upgrade 2.
+function WorldService.spawnTownStructures()
+    if _structuresSpawned then return end
+    _structuresSpawned = true
+
+    local center  = GameConfig.TOWN_CENTER_POS
+    local r       = GameConfig.TOWN_RADIUS
+
+    -- Cardinals: East=0, South=π/2, West=π, North=3π/2
+    local cardinals = {0, math.pi / 2, math.pi, 3 * math.pi / 2}
+    local labels    = {"E", "S", "W", "N"}
+
+    for idx, theta in cardinals do
+        local radial  = Vector3.new(math.cos(theta), 0, math.sin(theta))
+        local tangent = Vector3.new(-math.sin(theta), 0, math.cos(theta))
+        local base    = center + radial * r   -- point on circumference
+
+        -- Tower (3×4×3): sits 2.5 studs to the "left" of the cardinal along the tangent
+        local tH      = 4
+        local tPos    = base + tangent * (-2.5) + Vector3.new(0, tH / 2, 0)
+        local tower   = Instance.new("Part")
+        tower.Name    = "Tower_Foundation_" .. labels[idx]
+        tower.Size    = Vector3.new(3, tH, 3)
+        tower.BrickColor  = BrickColor.new("Medium stone grey")
+        tower.Transparency = 0.5
+        tower.Anchored    = true
+        tower.CFrame      = CFrame.lookAt(tPos, Vector3.new(center.X, tPos.Y, center.Z))
+        tower.Parent      = workspace
+        tower:SetAttribute("StructureType",   "Tower")
+        tower:SetAttribute("Level",           0)
+        tower:SetAttribute("MaxBuilders",     GameConfig.TOWER_MAX_BUILDERS)
+        tower:SetAttribute("CurrentBuilders", 0)
+        tower:SetAttribute("BuildProgress",   0)
+        tower:SetAttribute("BuildRequired",   GameConfig.STRUCTURE_BUILD_DURATION)
+
+        -- Barricade (6×2×2): sits 3.5 studs to the "right" of the cardinal
+        local bH         = 2
+        local bPos       = base + tangent * 3.5 + Vector3.new(0, bH / 2, 0)
+        local barricade  = Instance.new("Part")
+        barricade.Name   = "Barricade_Foundation_" .. labels[idx]
+        barricade.Size   = Vector3.new(6, bH, 2)
+        barricade.BrickColor  = BrickColor.new("Medium stone grey")
+        barricade.Transparency = 0.5
+        barricade.Anchored    = true
+        barricade.CFrame      = CFrame.lookAt(bPos, Vector3.new(center.X, bPos.Y, center.Z))
+        barricade.Parent      = workspace
+        barricade:SetAttribute("StructureType",   "Barricade")
+        barricade:SetAttribute("Level",           0)
+        barricade:SetAttribute("MaxBuilders",     GameConfig.BARRICADE_MAX_BUILDERS)
+        barricade:SetAttribute("CurrentBuilders", 0)
+        barricade:SetAttribute("BuildProgress",   0)
+        barricade:SetAttribute("BuildRequired",   GameConfig.STRUCTURE_BUILD_DURATION)
+    end
+
+    print("[WorldService] Town Level 1 structures spawned (4 tower+barricade pairs)")
+end
+
+function WorldService.getUnbuiltStructures(): {BasePart}
+    local list = {}
+    for _, child in workspace:GetChildren() do
+        if not child:IsA("BasePart") then continue end
+        if child:GetAttribute("Level") ~= 0 then continue end
+        if child:GetAttribute("BuildInProgress") then continue end
+        local n = child.Name
+        if n:sub(1, 16) == "Tower_Foundation" or n:sub(1, 20) == "Barricade_Foundation" then
+            table.insert(list, child :: BasePart)
+        end
+    end
+    return list
+end
+
+function WorldService.markStructureBuilt(inst: BasePart)
+    inst:SetAttribute("Level", 1)
+    inst:SetAttribute("BuildInProgress", false)
+    inst.Transparency = 0
+    inst.BrickColor   = BrickColor.new("Dark stone grey")
+    inst.Name         = inst.Name:gsub("_Foundation", "")
+    print("[WorldService] Built:", inst.Name)
+end
+
 function WorldService.onFireLit(cb: () -> ()): RBXScriptConnection
     return _fireLitEvent.Event:Connect(cb)
 end
@@ -353,6 +544,47 @@ end
 function WorldService.fireFireLit()
     _fireLitEvent:Fire()
     WorldService.spawnHammerShop()
+end
+
+-- ── Boat ─────────────────────────────────────────────────────────────────
+
+function WorldService.markBoatForRepair(): boolean
+    if not _boat or not _boat.Parent then return false end
+    if _boat:GetAttribute("Marked") then return false end
+    _boat:SetAttribute("Marked", true)
+    _boat.BrickColor = BrickColor.new("Bright yellow")
+    print("[WorldService] Boat marked for repair")
+    return true
+end
+
+function WorldService.repairBoat(part: BasePart)
+    part:SetAttribute("Level", 1)
+    part:SetAttribute("CurrentBuilders", 0)
+    part.BrickColor = BrickColor.new("Dark orange")
+    part.Name = "RepairedBoat"
+    print("[WorldService] Boat repaired!")
+end
+
+-- ── Unified build job query ───────────────────────────────────────────────
+
+type BuildJob = { instance: BasePart, position: Vector3 }
+
+function WorldService.getAvailableBuildJobs(): {BuildJob}
+    local jobs = {}
+    for _, child in workspace:GetChildren() do
+        if not child:IsA("BasePart") then continue end
+        if child:GetAttribute("Level") ~= 0 then continue end
+        local maxB = child:GetAttribute("MaxBuilders") or 1
+        local curB = child:GetAttribute("CurrentBuilders") or 0
+        if curB >= maxB then continue end
+        local n = child.Name
+        local isStructure = n:sub(1, 16) == "Tower_Foundation" or n:sub(1, 20) == "Barricade_Foundation"
+        local isBoat = n == "BrokenBoat" and child:GetAttribute("Marked") == true
+        if isStructure or isBoat then
+            table.insert(jobs, { instance = child :: BasePart, position = child.Position })
+        end
+    end
+    return jobs
 end
 
 return WorldService

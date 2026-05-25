@@ -18,11 +18,12 @@ local function spawnMayor(pos: Vector3): Model
     root.Name       = "HumanoidRootPart"
     root.Size       = Vector3.new(2, 3, 1)
     root.BrickColor = BrickColor.new("Bright blue")
+    root.CanCollide = false   -- players walk through the mayor
     root.Position   = pos + Vector3.new(0, 1.5, 0)
     root.Parent     = model
 
     local humanoid         = Instance.new("Humanoid")
-    humanoid.WalkSpeed     = 12
+    humanoid.WalkSpeed     = 6
     humanoid.MaxHealth     = math.huge
     humanoid.Health        = math.huge
     humanoid.Parent        = model
@@ -45,36 +46,29 @@ local function buildTent(pos: Vector3)
     print("[MayorService] Town Center tent built")
 end
 
-local function doFireLightSequence()
-    if _fireLit then return end
-    _fireLit = true
-    local mayorRoot = _mayorModel and _mayorModel.PrimaryPart
-    if not mayorRoot then return end
-
-    -- Walk to fire pit position (slightly south of town center)
-    local firePos = GameConfig.TOWN_CENTER_POS + Vector3.new(0, 0, 5)
-    local humanoid = _mayorModel:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid:MoveTo(firePos)
-        task.wait(3)
-    end
-
-    -- Spawn fire model
+local function spawnFirePit()
+    -- Fixed at town center; does not depend on mayor position
+    local firePos = GameConfig.TOWN_CENTER_POS + Vector3.new(0, 0.25, 4)
     local fire      = Instance.new("Part")
     fire.Name       = "FirePit"
     fire.Size       = Vector3.new(2, 0.5, 2)
     fire.BrickColor = BrickColor.new("Dark orange")
     fire.Anchored   = true
-    fire.Position   = firePos + Vector3.new(0, 0.25, 0)
+    fire.CanCollide = false
+    fire.Position   = firePos
     fire.Parent     = workspace
     local flame     = Instance.new("Fire")
     flame.Parent    = fire
+end
 
-    -- Town Level 1 unlock
+local function doFireLightSequence()
+    if _fireLit then return end
+    _fireLit = true
+
+    spawnFirePit()
     WorldService.fireFireLit()
     print("[MayorService] Fire lit! Town Level 1 unlocked.")
 
-    -- Give Island 1 starter coins to all players
     task.wait(1)
     for _, player in Players:GetPlayers() do
         CoinService.award(player.UserId, GameConfig.STARTER_COINS)
@@ -87,8 +81,21 @@ end
 local function init()
     _mayorModel = spawnMayor(GameConfig.TOWN_CENTER_POS)
 
-    -- Give the Mayor time to exist, then light fire
     task.delay(3, doFireLightSequence)
+
+    -- Gentle wander around town center
+    task.spawn(function()
+        while true do
+            task.wait(math.random(6, 14))
+            if not _mayorModel or not _mayorModel.Parent then break end
+            local humanoid = _mayorModel:FindFirstChildOfClass("Humanoid")
+            if not humanoid then continue end
+            local angle  = math.random() * 2 * math.pi
+            local dist   = math.random() * 8
+            humanoid:MoveTo(GameConfig.TOWN_CENTER_POS
+                + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
+        end
+    end)
 
     -- Dawn: pay interest, open bank
     TimeService.onDawn(function(_day)
@@ -102,7 +109,7 @@ local function init()
         end
     end)
 
-    -- Dusk: close bank, Mayor goes inside
+    -- Dusk: close bank, Mayor retreats to tent
     TimeService.onDusk(function()
         _bankOpen = false
         if _mayorModel then
@@ -113,7 +120,6 @@ local function init()
             end
         end
     end)
-
 end
 
 -- ── Public API ────────────────────────────────────────────────────────────

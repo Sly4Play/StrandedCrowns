@@ -7,9 +7,9 @@ return {
 
     -- Island layout (XZ positions; Y computed per-object at spawn)
     TOWN_CENTER_POS  = Vector3.new(  0, 0,    0),
-    PORTAL_NORTH_POS = Vector3.new(  0, 0, -120),
-    PORTAL_SOUTH_POS = Vector3.new(  0, 0,  120),
-    ISLAND_RADIUS    = 140,
+    PORTAL_NORTH_POS = Vector3.new(  0, 0, -240),
+    PORTAL_SOUTH_POS = Vector3.new(  0, 0,  240),
+    ISLAND_RADIUS    = 160,
 
     -- Gate positions (placeholder — no gate models in Phase 1)
     GATE_NORTH = Vector3.new(  0, 0, -40),
@@ -20,7 +20,8 @@ return {
     -- Purse limits
     PLAYER_PURSE_MAX  = 25,
     BUILDER_PURSE_MAX = 10,
-    WORKER_PURSE_MAX  = 5,
+    WORKER_PURSE_MAX  = 10,   -- all hired NPCs carry up to 10 coins
+    NPC_DUMP_RADIUS   = 4,    -- studs: NPC dumps coins to player within this range
 
     -- Economy
     STARTER_COINS          = 10,
@@ -38,7 +39,8 @@ return {
     MAYOR_BANK_STEAL_AMT = 5,
 
     -- Town
-    TOWN_RADIUS = 40,   -- NPCs wander within this radius; shops sit near the edge
+    TOWN_RADIUS           = 44,
+    FIREPIT_UPGRADE_COSTS = {8, 10, 12, 14, 16},
 
     -- Vagrant camps
     CAMP_COUNT                = 4,
@@ -47,13 +49,14 @@ return {
     CAMP_SPAWN_MAX            = 3,
     CAMP_MIN_DIST_PORTAL      = 8,
     CAMP_MIN_DIST_SHORE       = 8,
-    CAMP_MIN_DIST_TOWN_EDGE   = 40,  -- studs beyond town radius before camps can spawn
+    CAMP_MIN_DIST_TOWN_EDGE   = 55,  -- studs beyond town radius before camps can spawn
     CAMP_MIN_DIST_CAMP        = 50,  -- minimum studs between any two camps
     CAMP_RADIUS               = 35,
 
     -- NPC speeds
-    WORKER_WALK_SPEED  = 14,
-    VAGRANT_WALK_SPEED = 10,
+    NPC_RUN_SPEED      = 14,   -- purposeful movement: coin chase, to town, fetch tool, chop tree
+    NPC_WANDER_SPEED   = 7,    -- idle wander: jobless at town, builder when no trees
+    VAGRANT_WALK_SPEED = 2.5,  -- homeless slow amble
 
     -- Coin pickup
     COIN_PICKUP_RADIUS        = 2,
@@ -61,6 +64,11 @@ return {
     VAGRANT_COIN_SCAN_RADIUS  = 30,  -- how far homeless scan for player-dropped coins
     NPC_OVERFLOW_RADIUS       = 20,
     WORKER_COIN_PICKUP_DELAY  = 2,   -- seconds workers wait before collecting nearby ground coins
+
+    -- Structures
+    STRUCTURE_BUILD_DURATION = 5,
+    TOWER_MAX_BUILDERS       = 2,
+    BARRICADE_MAX_BUILDERS   = 2,
 
     -- Trees
     TREE_MAX_PLAYER_MARKS = 2,
@@ -72,6 +80,11 @@ return {
     -- Mounds (Phase 3 — placed but inert in Phase 1)
     MOUND_COUNT           = 8,
     MOUND_MIN_DIST_PORTAL = 10,
+
+    -- Boat repair
+    BOAT_REPAIR_COST     = 10,
+    BOAT_REPAIR_DURATION = 120,
+    BOAT_MAX_BUILDERS    = 3,
 
     -- Greed
     GREED_SPAWN_INTERVAL = 1,

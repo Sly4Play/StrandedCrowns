@@ -50,7 +50,9 @@ function CoinService.getPurse(id: number): number
     return entry and entry.amount or 0
 end
 
-local function makeCoinPart(pos: Vector3, amount: number): BasePart
+-- scatter: radius of random XZ jitter on spawn
+local function makeCoinPart(pos: Vector3, amount: number, scatter: number?): BasePart
+    local s          = scatter or 2.0
     local p          = Instance.new("Part")
     p.Name           = "GroundCoin"
     p.Size           = Vector3.new(0.5, 0.5, 0.5)
@@ -58,21 +60,21 @@ local function makeCoinPart(pos: Vector3, amount: number): BasePart
     p.BrickColor     = BrickColor.new("Bright yellow")
     p.Anchored       = true
     p.CanCollide     = false
-    p.Position       = pos + Vector3.new(math.random(-2, 2), 0.5, math.random(-2, 2))
+    p.Position       = Vector3.new(
+        pos.X + (math.random() * 2 - 1) * s,
+        0.3,
+        pos.Z + (math.random() * 2 - 1) * s
+    )
     p.Parent         = workspace
     p:SetAttribute("Amount", amount)
     return p
 end
 
-function CoinService.spawnGroundCoins(pos: Vector3, total: number, ownerId: number)
-    if total <= 0 then return end
-    local persist = math.ceil(total / 2)
-    local now     = tick()
-
-    local part = makeCoinPart(pos, persist)
+local function registerCoin(part: BasePart, amount: number, ownerId: number)
+    local now   = tick()
     local entry: GroundCoin = {
         instance  = part,
-        amount    = persist,
+        amount    = amount,
         ownerId   = ownerId,
         droppedAt = now,
         claimed   = false,
@@ -105,6 +107,24 @@ function CoinService.spawnGroundCoins(pos: Vector3, total: number, ownerId: numb
             part:Destroy()
         end
     end)
+end
+
+-- exact=true: spawn one part per coin (tight scatter so NPCs can collect them);
+-- exact=false (default): halve total into a single pile (hit-drop behaviour)
+function CoinService.spawnGroundCoins(pos: Vector3, total: number, ownerId: number, exact: boolean?)
+    if total <= 0 then return end
+    if exact == true then
+        -- Spawn individual coins, scatter 0.7 studs so they stay within COIN_PICKUP_RADIUS
+        for _ = 1, math.min(total, 10) do
+            registerCoin(makeCoinPart(pos, 1, 0.7), 1, ownerId)
+        end
+        if total > 10 then
+            registerCoin(makeCoinPart(pos, total - 10, 1.5), total - 10, ownerId)
+        end
+        return
+    end
+    local persist = math.ceil(total / 2)
+    registerCoin(makeCoinPart(pos, persist), persist, ownerId)
 end
 
 -- Returns the coin amount and removes it from the world; 0 if already claimed.
@@ -167,7 +187,12 @@ task.spawn(function()
                     coin.claimed = true
                     table.remove(groundCoins, i)
                     coin.instance:Destroy()
-                    CoinService.award(player.UserId, coin.amount)
+                    local received = CoinService.award(player.UserId, coin.amount)
+                    local overflow = coin.amount - received
+                    if overflow > 0 then
+                        -- Bag full: scatter overflow so coins aren't lost
+                        CoinService.spawnGroundCoins(pos, overflow, player.UserId, true)
+                    end
                 end
             end
         end

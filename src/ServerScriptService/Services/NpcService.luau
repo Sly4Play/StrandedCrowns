@@ -57,6 +57,11 @@ local function setNpcColor(npc: NpcData, color: BrickColor)
     if root then root.BrickColor = color end
 end
 
+local function setNpcSpeed(npc: NpcData, speed: number)
+    local humanoid = npc.instance:FindFirstChildOfClass("Humanoid")
+    if humanoid then humanoid.WalkSpeed = speed end
+end
+
 local function moveNpcTo(npc: NpcData, target: Vector3)
     local humanoid = npc.instance:FindFirstChildOfClass("Humanoid")
     if humanoid then humanoid:MoveTo(target) end
@@ -74,7 +79,7 @@ local function collectNearbyCoins(npc: NpcData)
     for _, coin in CoinService.getGroundCoins() do
         if npc.purse >= npc.maxPurse then break end
         if coin.claimed or not coin.instance.Parent then continue end
-        if now - coin.droppedAt < GameConfig.WORKER_COIN_PICKUP_DELAY then continue end
+        if coin.ownerId > 0 and now - coin.droppedAt < GameConfig.WORKER_COIN_PICKUP_DELAY then continue end
         if (coin.instance.Position - pos).Magnitude > GameConfig.COIN_PICKUP_RADIUS then continue end
         local canTake = npc.maxPurse - npc.purse
         local amount  = CoinService.claimGroundCoin(coin.instance)
@@ -96,6 +101,7 @@ local function becomeJobless(npc: NpcData, campId: number?)
     npc.state      = "Jobless"
     npc.campId     = nil
     setNpcColor(npc, COLOR_JOBLESS)
+    setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)  -- run to town
     if campId then
         _campCounts[campId] = math.max(0, (_campCounts[campId] or 1) - 1)
     end
@@ -132,7 +138,6 @@ local function spawnHomeless(campIdx: number, campPos: Vector3)
     _npcs[id] = npc
     _campCounts[campIdx] = count + 1
 
-    -- Camp behavior: food (global) > coins (scan radius) > enforce bounds
     task.spawn(function()
         local lastWanderAt = 0
         while npc.state == "InCamp" or npc.state == "Wandering" do
@@ -141,7 +146,7 @@ local function spawnHomeless(campIdx: number, campPos: Vector3)
 
             local pos = getNpcPosition(npc)
 
-            -- Priority 1: food anywhere on the map — only 1 homeless responds per item
+            -- Priority 1: food anywhere on the map
             local foods = WorldService.getAvailableFood()
             if #foods > 0 then
                 local nearestFood: BasePart? = nil
@@ -154,6 +159,7 @@ local function spawnHomeless(campIdx: number, campPos: Vector3)
                     end
                 end
                 if nearestFood and WorldService.reserveFood(nearestFood) then
+                    setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
                     moveNpcTo(npc, nearestFood.Position)
                     local reached   = false
                     local coinHired = false
@@ -185,9 +191,11 @@ local function spawnHomeless(campIdx: number, campPos: Vector3)
                     if coinHired or (reached and nearestFood.Parent) then
                         if reached then WorldService.consumeFood(nearestFood) end
                         becomeJobless(npc, npc.campId)
+                        continue  -- becomeJobless owns speed from here
                     elseif nearestFood.Parent then
                         nearestFood:SetAttribute("Reserved", false)
                     end
+                    setNpcSpeed(npc, GameConfig.VAGRANT_WALK_SPEED)
                     continue
                 end
             end
@@ -206,6 +214,7 @@ local function spawnHomeless(campIdx: number, campPos: Vector3)
                 end
             end
             if nearestCoin then
+                setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
                 moveNpcTo(npc, nearestCoin.instance.Position)
                 for _ = 1, 8 do
                     task.wait(0.5)
@@ -221,14 +230,19 @@ local function spawnHomeless(campIdx: number, campPos: Vector3)
                         break
                     end
                 end
+                -- Only reset speed if becomeJobless wasn't called
+                if npc.state == "InCamp" or npc.state == "Wandering" then
+                    setNpcSpeed(npc, GameConfig.VAGRANT_WALK_SPEED)
+                end
                 continue
             end
 
-            -- Nothing nearby: wander slowly within camp, pause 5-10s between moves
+            -- Nothing nearby: slow wander within camp, 5-10s between moves
             if npc.state == "InCamp" then
                 local now = tick()
                 if now - lastWanderAt >= math.random(5, 10) then
                     lastWanderAt = now
+                    setNpcSpeed(npc, GameConfig.VAGRANT_WALK_SPEED)
                     local angle = math.random() * 2 * math.pi
                     local dist  = math.random() * GameConfig.CAMP_RADIUS
                     moveNpcTo(npc, campPos + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
@@ -258,6 +272,7 @@ local function tryHireHomeless(player: Player, pos: Vector3)
         npc.state      = "HiredWalking"
         npc.profession = "Jobless"
         setNpcColor(npc, COLOR_JOBLESS)
+        setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)  -- run to town
         local campIdx = npc.campId
         if campIdx then
             _campCounts[campIdx] = math.max(0, (_campCounts[campIdx] or 1) - 1)
@@ -314,8 +329,6 @@ local function startWorkerLoop(npc: NpcData)
     npc.profession = "Builder"
     npc.maxPurse   = GameConfig.BUILDER_PURSE_MAX
     setNpcColor(npc, COLOR_WORKER)
-    local humanoid = npc.instance:FindFirstChildOfClass("Humanoid")
-    if humanoid then humanoid.WalkSpeed = GameConfig.WORKER_WALK_SPEED end
 
     task.spawn(function()
         while npc.instance.Parent do
@@ -323,9 +336,13 @@ local function startWorkerLoop(npc: NpcData)
             if not npc.instance.Parent then break end
             if npc.state ~= "Working" then continue end
 
-            local marked = WorldService.getMarkedTrees()
-            if #marked == 0 then
-                -- No trees: roam the outer ring of town (60-100% of radius)
+            local myPos    = getNpcPosition(npc)
+            local marked   = WorldService.getMarkedTrees()
+            local buildJobs = WorldService.getAvailableBuildJobs()
+
+            if #marked == 0 and #buildJobs == 0 then
+                -- Nothing to do: slow wander in the outer ring
+                setNpcSpeed(npc, GameConfig.NPC_WANDER_SPEED)
                 local town  = WorldService.getTownCenterPos()
                 local r     = GameConfig.TOWN_RADIUS
                 local angle = math.random() * 2 * math.pi
@@ -335,39 +352,96 @@ local function startWorkerLoop(npc: NpcData)
                 continue
             end
 
-            local nearest: typeof(marked[1])? = nil
-            local nearestDist = math.huge
-            local myPos = getNpcPosition(npc)
+            -- Find nearest marked tree
+            local nearestTree: typeof(marked[1])? = nil
+            local nearestTreeDist = math.huge
             for _, tree in marked do
                 local d = (tree.position - myPos).Magnitude
-                if d < nearestDist then
-                    nearestDist = d
-                    nearest     = tree
+                if d < nearestTreeDist then
+                    nearestTreeDist = d
+                    nearestTree = tree
                 end
             end
-            if not nearest then continue end
 
-            moveNpcTo(npc, nearest.position)
-            task.wait(nearestDist / GameConfig.WORKER_WALK_SPEED + 1)
-
-            if npc.state ~= "Working" then continue end
-
-            local trees = WorldService.getMarkedTrees()
-            local stillValid = false
-            for _, t in trees do if t.id == nearest.id then stillValid = true break end end
-            if not stillValid then continue end
-
-            task.wait(GameConfig.TREE_CHOP_DURATION)
-
-            if npc.state ~= "Working" then continue end
-
-            local reward = GameConfig.TREE_CHOP_REWARD
-            if npc.purse + reward <= npc.maxPurse then
-                npc.purse += reward
-                print("[NpcService] Worker earned", reward, "coins from chopping")
+            -- Find nearest available build job
+            local nearestJob: { instance: BasePart, position: Vector3 }? = nil
+            local nearestJobDist = math.huge
+            for _, job in buildJobs do
+                local d = (job.position - myPos).Magnitude
+                if d < nearestJobDist then
+                    nearestJobDist = d
+                    nearestJob = job
+                end
             end
 
-            WorldService.removeTree(nearest.id)
+            if nearestTree and (not nearestJob or nearestTreeDist <= nearestJobDist) then
+                -- ── Chop tree ────────────────────────────────────────────────
+                setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
+                moveNpcTo(npc, nearestTree.position)
+                task.wait(nearestTreeDist / GameConfig.NPC_RUN_SPEED + 1)
+                if npc.state ~= "Working" then continue end
+
+                local trees = WorldService.getMarkedTrees()
+                local stillValid = false
+                for _, t in trees do if t.id == nearestTree.id then stillValid = true break end end
+                if not stillValid then continue end
+
+                task.wait(GameConfig.TREE_CHOP_DURATION)
+                if npc.state ~= "Working" then continue end
+
+                WorldService.removeTree(nearestTree.id)
+                local choppedAt = getNpcPosition(npc)
+                for _ = 1, GameConfig.TREE_CHOP_REWARD do
+                    CoinService.spawnGroundCoins(choppedAt, 1, 0, true)
+                end
+                task.wait(0.2)
+                collectNearbyCoins(npc)
+
+            elseif nearestJob then
+                -- ── Build structure / repair boat ─────────────────────────
+                local target = nearestJob.instance
+                local curB   = target:GetAttribute("CurrentBuilders") or 0
+                local maxB   = target:GetAttribute("MaxBuilders") or 1
+                if curB >= maxB then continue end  -- slot just got taken
+                target:SetAttribute("CurrentBuilders", curB + 1)
+
+                setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
+                moveNpcTo(npc, nearestJob.position)
+                task.wait(nearestJobDist / GameConfig.NPC_RUN_SPEED + 1)
+
+                if npc.state ~= "Working" then
+                    if target.Parent then
+                        target:SetAttribute("CurrentBuilders",
+                            math.max(0, (target:GetAttribute("CurrentBuilders") or 1) - 1))
+                    end
+                    continue
+                end
+
+                -- Progress loop: each builder contributes 1/s until complete
+                while npc.state == "Working" and target.Parent do
+                    if target:GetAttribute("Level") ~= 0 then break end
+                    local progress = (target:GetAttribute("BuildProgress") or 0) + 1
+                    local required = target:GetAttribute("BuildRequired") or GameConfig.STRUCTURE_BUILD_DURATION
+                    target:SetAttribute("BuildProgress", progress)
+                    if progress >= required then
+                        if target:GetAttribute("Level") == 0 then
+                            if target.Name == "BrokenBoat" then
+                                WorldService.repairBoat(target)
+                            else
+                                WorldService.markStructureBuilt(target)
+                            end
+                        end
+                        break
+                    end
+                    moveNpcTo(npc, target.Position)
+                    task.wait(1)
+                end
+
+                if target.Parent then
+                    target:SetAttribute("CurrentBuilders",
+                        math.max(0, (target:GetAttribute("CurrentBuilders") or 1) - 1))
+                end
+            end
         end
     end)
 end
@@ -382,7 +456,7 @@ local function fetchTool(npc: NpcData)
             table.insert(tools, t)
         end
     end
-    if #tools == 0 then return end
+    if #tools == 0 then return end  -- poll loop continues (state stays IdleAtTown)
 
     local myPos   = getNpcPosition(npc)
     local nearest = tools[1]
@@ -393,13 +467,14 @@ local function fetchTool(npc: NpcData)
     end
 
     npc.state = "FetchingTool"
+    setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
     moveNpcTo(npc, nearest.instance.Position)
     task.spawn(function()
-        for _ = 1, 20 do
+        for _ = 1, 30 do   -- 15 seconds at 0.5s ticks
             task.wait(0.5)
             if npc.state ~= "FetchingTool" then return end
             if not nearest.instance.Parent then
-                npc.state = "IdleAtTown"
+                NpcService.assignTool(npc)   -- restart poll loop
                 return
             end
             if (getNpcPosition(npc) - nearest.instance.Position).Magnitude < 3 then
@@ -411,7 +486,7 @@ local function fetchTool(npc: NpcData)
                 return
             end
         end
-        npc.state = "IdleAtTown"
+        NpcService.assignTool(npc)   -- timeout — restart poll loop
     end)
 end
 
@@ -419,22 +494,30 @@ function NpcService.assignTool(npc: NpcData)
     npc.state = "IdleAtTown"
     local town = WorldService.getTownCenterPos()
 
-    -- Jobless wander in the inner half of town
-    task.spawn(function()
-        while npc.state == "IdleAtTown" do
-            task.wait(math.random(3, 7))
-            if npc.state ~= "IdleAtTown" then break end
-            local angle = math.random() * 2 * math.pi
-            local dist  = math.random() * (GameConfig.TOWN_RADIUS * 0.5)
-            moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
-        end
-    end)
+    -- Generation counter: any previous assignTool loop sees the bump and exits
+    local data = npc :: any
+    local gen  = (data._gen or 0) + 1
+    data._gen  = gen
 
-    -- Poll for a tool inside town boundary
     task.spawn(function()
-        while npc.state == "IdleAtTown" do
+        local lastWander  = 0
+        local wanderDelay = math.random(3, 7)
+        while npc.state == "IdleAtTown" and (npc :: any)._gen == gen do
             task.wait(1)
-            if npc.state ~= "IdleAtTown" then break end
+            if npc.state ~= "IdleAtTown" or (npc :: any)._gen ~= gen then break end
+
+            -- Wander periodically within inner half of town
+            local now = tick()
+            if now - lastWander >= wanderDelay then
+                lastWander   = now
+                wanderDelay  = math.random(3, 7)
+                setNpcSpeed(npc, GameConfig.NPC_WANDER_SPEED)
+                local angle = math.random() * 2 * math.pi
+                local dist  = math.random() * (GameConfig.TOWN_RADIUS * 0.5)
+                moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
+            end
+
+            -- Check for tools inside town
             local inTown = false
             for _, t in WorldService.getGroundTools() do
                 if (t.instance.Position - town).Magnitude <= GameConfig.TOWN_RADIUS then
@@ -444,7 +527,7 @@ function NpcService.assignTool(npc: NpcData)
             end
             if inTown then
                 fetchTool(npc)
-                break
+                if npc.state == "FetchingTool" then break end
             end
         end
     end)
@@ -452,7 +535,6 @@ end
 
 function NpcService.hitWorker(npc: NpcData)
     if npc.state == "Toolless" then
-        -- Second hit: become jobless, wander town
         npc.profession = "Jobless"
         npc.state      = "Wandering"
         npc.tool       = nil
@@ -463,7 +545,6 @@ function NpcService.hitWorker(npc: NpcData)
         return
     end
 
-    -- First hit: drop tool
     npc.state = "Toolless"
     local pos = getNpcPosition(npc)
     local p   = Instance.new("Part")
@@ -484,13 +565,39 @@ function NpcService.tryHireFromDrop(player: Player, pos: Vector3)
     tryHireHomeless(player, pos)
 end
 
--- Periodic coin collection for workers
+-- Periodic coin collection: builders + jobless passively pick up ground coins while moving
 task.spawn(function()
     while true do
         task.wait(2)
         for _, npc in _npcs do
             if npc.profession == "Builder" and npc.state == "Working" then
                 collectNearbyCoins(npc)
+            elseif npc.profession == "Jobless"
+                and (npc.state == "IdleAtTown" or npc.state == "FetchingTool") then
+                collectNearbyCoins(npc)
+            end
+        end
+    end
+end)
+
+-- Player proximity dump: NPC drops coins at player's feet (visible) within NPC_DUMP_RADIUS;
+-- the player proximity pickup loop collects them and handles any bag overflow.
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        for _, npc in _npcs do
+            if npc.purse <= 1 then continue end
+            local npcPos = getNpcPosition(npc)
+            for _, player in Players:GetPlayers() do
+                local char = player.Character
+                if not char or not char.PrimaryPart then continue end
+                if (char.PrimaryPart.Position - npcPos).Magnitude > GameConfig.NPC_DUMP_RADIUS then continue end
+                local dumpAmt = npc.purse - 1
+                npc.purse -= dumpAmt
+                -- Spawn at player feet so coin transfer is visible; ownerId=0 so
+                -- the proximity loop picks them up immediately
+                CoinService.spawnGroundCoins(char.PrimaryPart.Position, dumpAmt, 0, true)
+                break  -- dump to one player at a time
             end
         end
     end

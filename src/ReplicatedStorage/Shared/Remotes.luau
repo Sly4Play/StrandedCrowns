@@ -26,12 +26,15 @@ end
 
 return {
     -- Server → Client
-    PhaseChanged = get("RemoteEvent",    "PhaseChanged"),  -- (phase: Phase, day: number)
-    CoinChanged  = get("RemoteEvent",    "CoinChanged"),   -- (amount: number)
+    PhaseChanged        = get("RemoteEvent",    "PhaseChanged"),        -- (phase: Phase, day: number)
+    CoinChanged         = get("RemoteEvent",    "CoinChanged"),         -- (amount: number)
+    FirepitLevelChanged = get("RemoteEvent",    "FirepitLevelChanged"), -- (level: number, nextCost: number?)
     -- Client → Server
     DropCoins    = get("RemoteEvent",    "DropCoins"),     -- (amount: number)
     DropFood     = get("RemoteEvent",    "DropFood"),      -- () spawns food at player pos
-    BuyTool      = get("RemoteFunction", "BuyTool"),       -- () → bool
-    MarkTree     = get("RemoteFunction", "MarkTree"),      -- (treeId: string) → bool
-    BankWithdraw = get("RemoteFunction", "BankWithdraw"),  -- (amount: number) → bool
+    BuyTool         = get("RemoteFunction", "BuyTool"),          -- () → bool
+    MarkTree        = get("RemoteFunction", "MarkTree"),         -- (treeId: string) → bool
+    BankWithdraw    = get("RemoteFunction", "BankWithdraw"),     -- (amount: number) → bool
+    UpgradeFirepit  = get("RemoteFunction", "UpgradeFirepit"),   -- () → bool
+    MarkBoat        = get("RemoteFunction", "MarkBoat"),         -- () → bool
 }
