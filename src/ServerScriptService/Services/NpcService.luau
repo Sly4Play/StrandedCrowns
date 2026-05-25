@@ -393,11 +393,13 @@ function NpcService.assignTool(npc: NpcData)
         end)
         return
     end
-    -- Move NPC to ground-level spot beside the shop (not inside it)
+    -- Pause at town visibly yellow before walking to shop
     local shopPos = (hammerShop :: BasePart).Position
     local meetPos = Vector3.new(shopPos.X, 0, shopPos.Z + 4)
-    moveNpcTo(npc, meetPos)
     task.spawn(function()
+        task.wait(3)  -- player can clearly see the yellow hired NPC standing in town
+        if npc.state ~= "IdleAtTown" then return end
+        moveNpcTo(npc, meetPos)
         for _ = 1, 15 do
             task.wait(0.5)
             if (getNpcPosition(npc) - meetPos).Magnitude < 4 then break end

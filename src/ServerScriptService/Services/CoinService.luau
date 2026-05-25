@@ -51,13 +51,15 @@ function CoinService.getPurse(id: number): number
 end
 
 local function makeCoinPart(pos: Vector3, amount: number): BasePart
-    local p      = Instance.new("Part")
-    p.Name       = "GroundCoin"
-    p.Size       = Vector3.new(0.5, 0.5, 0.5)
-    p.Shape      = Enum.PartType.Ball
-    p.BrickColor = BrickColor.new("Bright yellow")
-    p.Position   = pos + Vector3.new(math.random(-2, 2), 1, math.random(-2, 2))
-    p.Parent     = workspace
+    local p          = Instance.new("Part")
+    p.Name           = "GroundCoin"
+    p.Size           = Vector3.new(0.5, 0.5, 0.5)
+    p.Shape          = Enum.PartType.Ball
+    p.BrickColor     = BrickColor.new("Bright yellow")
+    p.Anchored       = true
+    p.CanCollide     = false
+    p.Position       = pos + Vector3.new(math.random(-2, 2), 0.5, math.random(-2, 2))
+    p.Parent         = workspace
     p:SetAttribute("Amount", amount)
     return p
 end
