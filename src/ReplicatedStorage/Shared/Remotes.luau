@@ -29,6 +29,7 @@ return {
     PhaseChanged        = get("RemoteEvent",    "PhaseChanged"),        -- (phase: Phase, day: number)
     CoinChanged         = get("RemoteEvent",    "CoinChanged"),         -- (amount: number)
     FirepitLevelChanged = get("RemoteEvent",    "FirepitLevelChanged"), -- (level: number, nextCost: number?)
+    NpcCoinDump         = get("RemoteEvent",    "NpcCoinDump"),         -- (npcPos: Vector3, amount: number)
     -- Client → Server
     DropCoins    = get("RemoteEvent",    "DropCoins"),     -- (amount: number)
     DropFood     = get("RemoteEvent",    "DropFood"),      -- () spawns food at player pos

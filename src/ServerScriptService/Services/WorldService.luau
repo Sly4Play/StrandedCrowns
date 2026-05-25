@@ -248,8 +248,11 @@ end
 function WorldService.buildIsland(islandIdx: number?)
     local rng    = Random.new(os.time())
     local center = GameConfig.TOWN_CENTER_POS
-    local radius = GameConfig.ISLAND_RADIUS
     local iIdx   = islandIdx or 1
+    local radii  = GameConfig.ISLAND_RADIUS_BY_ISLAND
+    local trees  = GameConfig.TREE_COUNT_BY_ISLAND
+    local radius    = (radii and radii[iIdx]) or GameConfig.ISLAND_RADIUS
+    local treeCount = (trees and trees[iIdx]) or GameConfig.TREE_COUNT
 
     -- Pre-compute boat shore position so camps stay clear of it
     local boatAngle = math.pi / 6
@@ -291,7 +294,7 @@ function WorldService.buildIsland(islandIdx: number?)
 
     local placedTrees: {{pos: Vector3, size: number}} = {}
 
-    for i = 1, GameConfig.TREE_COUNT do
+    for i = 1, treeCount do
         local treeSize = pickTreeSize(rng, iIdx)
         local pos
         local placed = false

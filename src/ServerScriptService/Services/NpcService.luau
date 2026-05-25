@@ -1,4 +1,5 @@
 local GameConfig   = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local Remotes      = require(game:GetService("ReplicatedStorage").Shared.Remotes)
 local CoinService  = require(script.Parent.CoinService)
 local WorldService = require(script.Parent.WorldService)
 local TimeService  = require(script.Parent.TimeService)
@@ -657,8 +658,8 @@ task.spawn(function()
     end
 end)
 
--- Player proximity dump: NPC drops coins at player's feet (visible) within NPC_DUMP_RADIUS;
--- the player proximity pickup loop collects them and handles any bag overflow.
+-- Player proximity dump: NPC awards coins directly to player and fires the
+-- NpcCoinDump event so the client plays a coin-arc animation (same style as buying).
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -671,9 +672,14 @@ task.spawn(function()
                 if (char.PrimaryPart.Position - npcPos).Magnitude > GameConfig.NPC_DUMP_RADIUS then continue end
                 local dumpAmt = npc.purse - 1
                 npc.purse -= dumpAmt
-                -- Spawn at player feet so coin transfer is visible; ownerId=0 so
-                -- the proximity loop picks them up immediately
-                CoinService.spawnGroundCoins(char.PrimaryPart.Position, dumpAmt, 0, true)
+                local received = CoinService.award(player.UserId, dumpAmt)
+                local overflow = dumpAmt - received
+                if overflow > 0 then
+                    -- Bag full: scatter overflow near the NPC so it doesn't vanish
+                    CoinService.spawnGroundCoins(npcPos, overflow, 0, true)
+                end
+                -- Fire animation event — client plays arc from NPC to player
+                Remotes.NpcCoinDump:FireClient(player, npcPos, received)
                 break  -- dump to one player at a time
             end
         end

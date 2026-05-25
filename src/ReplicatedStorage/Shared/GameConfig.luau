@@ -9,7 +9,11 @@ return {
     TOWN_CENTER_POS  = Vector3.new(  0, 0,    0),
     PORTAL_NORTH_POS = Vector3.new(  0, 0, -240),
     PORTAL_SOUTH_POS = Vector3.new(  0, 0,  240),
-    ISLAND_RADIUS    = 160,
+    ISLAND_RADIUS    = 160,  -- fallback; per-island values below take priority
+
+    -- Per-island scaling. Island 5 must fit: main dungeon + lighthouse + 8 portals.
+    ISLAND_RADIUS_BY_ISLAND = {160, 195, 230, 270, 340},
+    TREE_COUNT_BY_ISLAND    = { 45,  58,  72,  88, 110},
 
     -- Gate positions (placeholder — no gate models in Phase 1)
     GATE_NORTH = Vector3.new(  0, 0, -40),

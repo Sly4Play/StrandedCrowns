@@ -89,6 +89,13 @@ local _cancelStream   = false
 local _streaming      = false
 local _streamComplete = false
 
+-- Returns the HUD coin label so we can decrement it in sync with each coin landing.
+local function getHudCoinLabel(): TextLabel?
+    local gui   = player.PlayerGui:FindFirstChild("GameHud")
+    local frame = gui and gui:FindFirstChild("CoinFrame")
+    return frame and frame:FindFirstChildOfClass("TextLabel") :: TextLabel?
+end
+
 local function streamBuy(best: Interactive, fromPos: Vector3)
     local cost      = best.cost
     local remaining = cost
@@ -133,6 +140,13 @@ local function streamBuy(best: Interactive, fromPos: Vector3)
 
         remaining -= 1
         if label and label.Parent then label.Text = tostring(remaining) end
+
+        -- Optimistic HUD decrement so counter drops as each coin lands
+        local hudLabel = getHudCoinLabel()
+        if hudLabel then
+            local cur = tonumber(hudLabel.Text:match("%d+")) or 0
+            hudLabel.Text = "Coins: " .. math.max(0, cur - 1)
+        end
     end
 
     -- Final cancel check before committing to server
@@ -140,6 +154,7 @@ local function streamBuy(best: Interactive, fromPos: Vector3)
 
     _streamComplete = true
     local success = best.action()
+    -- Server fires CoinChanged which snaps HUD to the authoritative value
     resetLabel()
 
     if not success then
