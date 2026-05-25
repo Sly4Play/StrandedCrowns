@@ -13,7 +13,7 @@ local TimeService = require(Services.TimeService)
 local CoinService = require(Services.CoinService)
 
 local WorldService = require(Services.WorldService)
-WorldService.buildIsland()
+WorldService.buildIsland(1)
 
 local MayorService = require(Services.MayorService)
 

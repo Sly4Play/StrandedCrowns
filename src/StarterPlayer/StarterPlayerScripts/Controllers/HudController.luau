@@ -47,7 +47,7 @@ Lighting.ClockTime     = 12
 Lighting.Brightness    = 1.5
 
 -- Each phase maps a window of clock-hours over its real-time duration
-local CLOCK_START: {[string]: number} = { Dawn = 5,  Day = 7,  Dusk = 17, Night = 19 }
+local CLOCK_START: {[string]: number} = { Dawn = 6,  Day = 7,  Dusk = 17, Night = 19 }
 local CLOCK_END:   {[string]: number} = { Dawn = 7,  Day = 17, Dusk = 19, Night = 5  }
 local PHASE_DUR:   {[string]: number} = {
     Dawn  = GameConfig.DAWN_DURATION,
@@ -108,7 +108,7 @@ RunService.Heartbeat:Connect(function()
     elseif _phase == "Dusk" then
         Lighting.Brightness = 1.5 - t * 1.1
     elseif _phase == "Dawn" then
-        Lighting.Brightness = 1.3 + t * 0.2
+        Lighting.Brightness = 1.5
     else
         Lighting.Brightness = 1.5
     end

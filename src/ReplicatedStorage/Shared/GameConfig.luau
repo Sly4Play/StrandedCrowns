@@ -68,7 +68,7 @@ return {
     -- Tool shops / racks
     RACK_MAX_TOOLS  = 4,    -- max tools on any shop rack at once
     HAMMER_COST     = 3,
-    BOW_COST        = 5,
+    BOW_COST        = 2,
 
     -- Hunter
     HUNTER_PURSE_MAX = 8,
@@ -80,7 +80,7 @@ return {
 
     -- Trees
     TREE_MAX_PLAYER_MARKS = 2,
-    TREE_COUNT           = 30,
+    TREE_COUNT           = 45,
     TREE_MIN_DIST_TOWN   = 15,
     TREE_MIN_DIST_PORTAL = 12,
     TREE_CHOP_DURATION   = 3,

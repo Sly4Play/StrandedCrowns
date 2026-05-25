@@ -41,6 +41,21 @@ end
 -- Half-width of each tree's canopy footprint (leaves width / 2 + buffer)
 local TREE_FOOTPRINT: {[number]: number} = { [1] = 3, [2] = 5, [3] = 7 }
 
+-- Weighted tree size per island tier:
+--   Island 1:   small dominant  (60 / 28 / 12)
+--   Islands 2-3: medium dominant (18 / 58 / 24)
+--   Islands 4-5: large dominant  (8  / 28 / 64)
+local function pickTreeSize(rng: Random, islandIdx: number): number
+    local r = rng:NextNumber()
+    if islandIdx <= 1 then
+        return r < 0.60 and 1 or r < 0.88 and 2 or 3
+    elseif islandIdx <= 3 then
+        return r < 0.18 and 1 or r < 0.76 and 2 or 3
+    else
+        return r < 0.08 and 1 or r < 0.36 and 2 or 3
+    end
+end
+
 local function tooCloseToTrees(pos: Vector3, placed: {{pos: Vector3, size: number}}, newSize: number): boolean
     local newR = TREE_FOOTPRINT[newSize] or 3
     for _, t in placed do
@@ -230,10 +245,11 @@ local function spawnBrokenBoat()
     print("[WorldService] Broken boat spawned at", math.floor(pos.X), math.floor(pos.Z))
 end
 
-function WorldService.buildIsland()
+function WorldService.buildIsland(islandIdx: number?)
     local rng    = Random.new(os.time())
     local center = GameConfig.TOWN_CENTER_POS
     local radius = GameConfig.ISLAND_RADIUS
+    local iIdx   = islandIdx or 1
 
     -- Pre-compute boat shore position so camps stay clear of it
     local boatAngle = math.pi / 6
@@ -276,7 +292,7 @@ function WorldService.buildIsland()
     local placedTrees: {{pos: Vector3, size: number}} = {}
 
     for i = 1, GameConfig.TREE_COUNT do
-        local treeSize = rng:NextInteger(1, 3)
+        local treeSize = pickTreeSize(rng, iIdx)
         local pos
         local placed = false
         local attempts = 0

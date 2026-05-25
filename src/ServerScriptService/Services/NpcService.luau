@@ -335,6 +335,7 @@ local _droppedTools: {GroundToolEntry} = {}
 local function startWorkerLoop(npc: NpcData)
     npc.profession = "Builder"
     npc.maxPurse   = GameConfig.BUILDER_PURSE_MAX
+    npc.state      = "Working"
     setNpcColor(npc, COLOR_WORKER)
 
     task.spawn(function()
