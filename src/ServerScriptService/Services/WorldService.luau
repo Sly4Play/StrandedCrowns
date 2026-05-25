@@ -79,6 +79,27 @@ local function makeHammerShop(pos: Vector3): BasePart
     return p
 end
 
+local function makeTownBoundary(center: Vector3, radius: number)
+    local segments = 24
+    local step     = (2 * math.pi) / segments
+    local chord    = 2 * radius * math.sin(step / 2) + 0.3
+    for i = 0, segments - 1 do
+        local angle = i * step
+        local x     = center.X + math.cos(angle) * radius
+        local z     = center.Z + math.sin(angle) * radius
+        local p         = Instance.new("Part")
+        p.Name          = "TownBoundary"
+        p.Size          = Vector3.new(chord, 0.4, 0.6)
+        p.CFrame        = CFrame.new(x, center.Y + 0.2, z) * CFrame.Angles(0, -(angle + math.pi / 2), 0)
+        p.Anchored      = true
+        p.CanCollide    = false
+        p.Transparency  = 0.45
+        p.BrickColor    = BrickColor.new("White")
+        p.Material      = Enum.Material.Neon
+        p.Parent        = workspace
+    end
+end
+
 local function makeMound(pos: Vector3)
     local p      = Instance.new("Part")
     p.Name       = "Mound"
@@ -93,6 +114,8 @@ function WorldService.buildIsland()
     local rng    = Random.new(os.time())
     local center = GameConfig.TOWN_CENTER_POS
     local radius = GameConfig.ISLAND_RADIUS
+
+    makeTownBoundary(center, GameConfig.TOWN_RADIUS)
 
     local pn = makePortal(GameConfig.PORTAL_NORTH_POS)
     local ps = makePortal(GameConfig.PORTAL_SOUTH_POS)
@@ -132,6 +155,8 @@ function WorldService.buildIsland()
         }
     end
 
+    local campMinFromCenter = GameConfig.TOWN_RADIUS + GameConfig.CAMP_MIN_DIST_TOWN_EDGE
+
     for i = 1, GameConfig.CAMP_COUNT do
         local pos
         local placed = false
@@ -139,8 +164,9 @@ function WorldService.buildIsland()
         repeat
             pos = randXZ(rng, radius * 0.8, 0)
             attempts += 1
-            if not tooClose(pos, forbidden, GameConfig.CAMP_MIN_DIST_PORTAL)
-                and not tooClose(pos, _campPositions, 20) then
+            if not tooClose(pos, {center}, campMinFromCenter)
+                and not tooClose(pos, portalPositions, GameConfig.CAMP_MIN_DIST_PORTAL)
+                and not tooClose(pos, _campPositions, GameConfig.CAMP_MIN_DIST_CAMP) then
                 placed = true
                 break
             end
