@@ -24,7 +24,7 @@ local function attachCoinBubble(part: BasePart, cost: number, maxDist: number?)
     local billboard             = Instance.new("BillboardGui")
     billboard.Name              = "CoinBubble"
     billboard.Size              = UDim2.new(0, 44, 0, 24)
-    billboard.StudsOffset       = Vector3.new(0, 2, 0)
+    billboard.StudsOffset       = Vector3.new(0, 6, 0)
     billboard.MaxDistance       = maxDist or 30
     billboard.AlwaysOnTop       = false
     billboard.Parent            = part

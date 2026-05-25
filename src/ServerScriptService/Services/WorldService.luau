@@ -17,9 +17,9 @@ local _hammerShopSpawned = false
 
 local WorldService = {}
 
-local function randXZ(rng: Random, radius: number, yHeight: number): Vector3
+local function randXZ(rng: Random, minDist: number, maxDist: number, yHeight: number): Vector3
     local angle = rng:NextNumber(0, 2 * math.pi)
-    local dist  = rng:NextNumber(20, radius)
+    local dist  = rng:NextNumber(minDist, maxDist)
     return Vector3.new(math.cos(angle) * dist, yHeight, math.sin(angle) * dist)
 end
 
@@ -135,7 +135,7 @@ function WorldService.buildIsland()
         local placed = false
         local attempts = 0
         repeat
-            pos = randXZ(rng, radius, 0)
+            pos = randXZ(rng, 20, radius, 0)
             attempts += 1
             if not tooClose(pos, {center}, GameConfig.TREE_MIN_DIST_TOWN)
                 and not tooClose(pos, portalPositions, GameConfig.TREE_MIN_DIST_PORTAL) then
@@ -162,9 +162,9 @@ function WorldService.buildIsland()
         local placed = false
         local attempts = 0
         repeat
-            pos = randXZ(rng, radius * 0.8, 0)
+            pos = randXZ(rng, campMinFromCenter, radius * 0.9, 0)
             attempts += 1
-            if not tooClose(pos, {center}, campMinFromCenter)
+            if not tooClose(pos, portalPositions, GameConfig.CAMP_MIN_DIST_PORTAL)
                 and not tooClose(pos, portalPositions, GameConfig.CAMP_MIN_DIST_PORTAL)
                 and not tooClose(pos, _campPositions, GameConfig.CAMP_MIN_DIST_CAMP) then
                 placed = true
@@ -190,7 +190,7 @@ function WorldService.buildIsland()
         local placed = false
         local attempts = 0
         repeat
-            pos = randXZ(rng, radius, 0)
+            pos = randXZ(rng, 20, radius, 0)
             attempts += 1
             if not tooClose(pos, forbidden, GameConfig.MOUND_MIN_DIST_PORTAL) then
                 placed = true
