@@ -21,7 +21,7 @@ return {
     PLAYER_PURSE_MAX  = 25,
     BUILDER_PURSE_MAX = 10,
     WORKER_PURSE_MAX  = 10,   -- all hired NPCs carry up to 10 coins
-    NPC_DUMP_RADIUS   = 4,    -- studs: NPC dumps coins to player within this range
+    NPC_DUMP_RADIUS   = 8,    -- studs: NPC dumps coins to player within this range
 
     -- Economy
     STARTER_COINS          = 10,
@@ -51,6 +51,7 @@ return {
     CAMP_MIN_DIST_SHORE       = 8,
     CAMP_MIN_DIST_TOWN_EDGE   = 55,  -- studs beyond town radius before camps can spawn
     CAMP_MIN_DIST_CAMP        = 50,  -- minimum studs between any two camps
+    BOAT_MIN_DIST_CAMP        = 40,  -- camps must stay this far from the broken boat
     CAMP_RADIUS               = 35,
 
     -- NPC speeds
@@ -72,7 +73,7 @@ return {
 
     -- Trees
     TREE_MAX_PLAYER_MARKS = 2,
-    TREE_COUNT           = 25,
+    TREE_COUNT           = 30,
     TREE_MIN_DIST_TOWN   = 15,
     TREE_MIN_DIST_PORTAL = 12,
     TREE_CHOP_DURATION   = 3,

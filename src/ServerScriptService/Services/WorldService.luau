@@ -17,6 +17,7 @@ local _portals: {BasePart} = {}
 local _hammerShopSpawned = false
 local _structuresSpawned = false
 local _boat: BasePart? = nil
+local _spawn: SpawnLocation? = nil
 
 local WorldService = {}
 
@@ -200,20 +201,28 @@ function WorldService.buildIsland()
     local center = GameConfig.TOWN_CENTER_POS
     local radius = GameConfig.ISLAND_RADIUS
 
+    -- Pre-compute boat shore position so camps stay clear of it
+    local boatAngle = math.pi / 6
+    local boatPos   = center + Vector3.new(math.cos(boatAngle) * radius, 0, math.sin(boatAngle) * radius)
+
     -- Remove any default SpawnLocations so ours is the only one
     for _, child in workspace:GetChildren() do
         if child:IsA("SpawnLocation") then child:Destroy() end
     end
 
-    local spawn             = Instance.new("SpawnLocation")
-    spawn.Name              = "TownSpawn"
-    spawn.Size              = Vector3.new(6, 1, 6)
-    spawn.Anchored          = true
-    spawn.CanCollide        = true
-    spawn.Transparency      = 1
-    spawn.Neutral           = true
-    spawn.Position          = center + Vector3.new(0, 1, 0)
-    spawn.Parent            = workspace
+    -- Spawn point starts at the broken boat (island arrival point).
+    -- WorldService.setSpawnAtTown() moves it once the lighthouse is repaired.
+    local inward = (center - boatPos).Unit
+    local sp             = Instance.new("SpawnLocation")
+    sp.Name              = "IslandSpawn"
+    sp.Size              = Vector3.new(6, 1, 6)
+    sp.Anchored          = true
+    sp.CanCollide        = true
+    sp.Transparency      = 1
+    sp.Neutral           = true
+    sp.Position          = boatPos + inward * 14 + Vector3.new(0, 1, 0)
+    sp.Parent            = workspace
+    _spawn               = sp
 
     makeTownBoundary(center, GameConfig.TOWN_RADIUS)
 
@@ -271,7 +280,7 @@ function WorldService.buildIsland()
             pos = randXZ(rng, campMinFromCenter, radius * 0.9, 0)
             attempts += 1
             if not tooClose(pos, portalPositions, GameConfig.CAMP_MIN_DIST_PORTAL)
-                and not tooClose(pos, portalPositions, GameConfig.CAMP_MIN_DIST_PORTAL)
+                and not tooClose(pos, {boatPos}, GameConfig.BOAT_MIN_DIST_CAMP)
                 and not tooClose(pos, _campPositions, GameConfig.CAMP_MIN_DIST_CAMP) then
                 placed = true
                 break
@@ -319,6 +328,14 @@ end
 
 function WorldService.getTownCenterPos(): Vector3
     return GameConfig.TOWN_CENTER_POS
+end
+
+-- Call when the lighthouse is repaired to move the island spawn to town center.
+function WorldService.setSpawnAtTown()
+    if not _spawn then return end
+    _spawn.Position = GameConfig.TOWN_CENTER_POS + Vector3.new(0, 1, 0)
+    _spawn.Name     = "TownSpawn"
+    print("[WorldService] Spawn moved to town center (lighthouse repaired)")
 end
 
 function WorldService.getPortals(): {BasePart}

@@ -108,7 +108,7 @@ RunService.Heartbeat:Connect(function()
     elseif _phase == "Dusk" then
         Lighting.Brightness = 1.5 - t * 1.1
     elseif _phase == "Dawn" then
-        Lighting.Brightness = 1.1 + t * 0.4
+        Lighting.Brightness = 1.3 + t * 0.2
     else
         Lighting.Brightness = 1.5
     end
