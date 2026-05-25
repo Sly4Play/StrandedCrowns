@@ -134,6 +134,7 @@ local function spawnHomeless(campIdx: number, campPos: Vector3)
 
     -- Camp behavior: food (global) > coins (scan radius) > enforce bounds
     task.spawn(function()
+        local lastWanderAt = 0
         while npc.state == "InCamp" or npc.state == "Wandering" do
             task.wait(0.5)
             if npc.state ~= "InCamp" and npc.state ~= "Wandering" then break end
@@ -223,11 +224,15 @@ local function spawnHomeless(campIdx: number, campPos: Vector3)
                 continue
             end
 
-            -- Nothing nearby: wander randomly within camp
+            -- Nothing nearby: wander slowly within camp, pause 5-10s between moves
             if npc.state == "InCamp" then
-                local angle = math.random() * 2 * math.pi
-                local dist  = math.random() * GameConfig.CAMP_RADIUS
-                moveNpcTo(npc, campPos + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
+                local now = tick()
+                if now - lastWanderAt >= math.random(5, 10) then
+                    lastWanderAt = now
+                    local angle = math.random() * 2 * math.pi
+                    local dist  = math.random() * GameConfig.CAMP_RADIUS
+                    moveNpcTo(npc, campPos + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
+                end
             end
         end
     end)

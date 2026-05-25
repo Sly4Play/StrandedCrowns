@@ -49,7 +49,7 @@ return {
     CAMP_MIN_DIST_SHORE       = 8,
     CAMP_MIN_DIST_TOWN_EDGE   = 20,  -- studs beyond town radius before camps can spawn
     CAMP_MIN_DIST_CAMP        = 50,  -- minimum studs between any two camps
-    CAMP_RADIUS               = 20,
+    CAMP_RADIUS               = 35,
 
     -- NPC speeds
     WORKER_WALK_SPEED  = 14,
