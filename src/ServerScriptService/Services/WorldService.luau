@@ -73,7 +73,7 @@ local function makeHammerShop(pos: Vector3): BasePart
     p.Size       = Vector3.new(4, 4, 4)
     p.BrickColor = BrickColor.new("Bright orange")
     p.Anchored   = true
-    p.Position   = pos + Vector3.new(8, 2, 0)
+    p.Position   = pos + Vector3.new(0, 2, 16)
     p.Parent     = workspace
     p:SetAttribute("ShopType", "Hammer")
     return p

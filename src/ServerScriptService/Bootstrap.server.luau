@@ -57,7 +57,9 @@ Remotes.BuyTool.OnServerInvoke = function(player: Player): boolean
     toolPart.Name        = "Hammer"
     toolPart.Size        = Vector3.new(1, 1, 3)
     toolPart.BrickColor  = BrickColor.new("Medium stone grey")
-    toolPart.Position    = shopPart.Position + Vector3.new(0, 1, 3)
+    toolPart.Anchored    = true
+    toolPart.CanCollide  = false
+    toolPart.Position    = Vector3.new(shopPart.Position.X, 0.5, shopPart.Position.Z + 3)
     toolPart.Parent      = workspace
     toolPart:SetAttribute("ToolType", "Hammer")
     WorldService.registerGroundTool(toolPart, toolPart.Position)

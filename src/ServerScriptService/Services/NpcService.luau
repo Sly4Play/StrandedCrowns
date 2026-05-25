@@ -136,7 +136,7 @@ local function spawnVagrant(campIdx: number, campPos: Vector3)
     -- Camp behavior: food (global) > coins (8 studs) > enforce bounds
     task.spawn(function()
         while npc.state == "InCamp" or npc.state == "Wandering" do
-            task.wait(1)
+            task.wait(0.5)
             if npc.state ~= "InCamp" and npc.state ~= "Wandering" then break end
 
             local pos = getNpcPosition(npc)
@@ -325,8 +325,9 @@ local function startBuilderLoop(npc: NpcData)
             local marked = WorldService.getMarkedTrees()
             if #marked == 0 then
                 local town = WorldService.getTownCenterPos()
-                if (getNpcPosition(npc) - town).Magnitude > 15 then
-                    moveNpcTo(npc, town + Vector3.new(math.random(-8, 8), 0, math.random(-8, 8)))
+                local r = GameConfig.TOWN_RADIUS
+                if (getNpcPosition(npc) - town).Magnitude > r then
+                    moveNpcTo(npc, town + Vector3.new(math.random(-r, r), 0, math.random(-r, r)))
                 end
                 task.wait(5)
                 continue
@@ -376,37 +377,67 @@ local function startBuilderLoop(npc: NpcData)
     end)
 end
 
-function NpcService.assignTool(npc: NpcData)
-    -- Find nearest available hammer shop Part in workspace
-    local hammerShop = workspace:FindFirstChild("HammerShop")
-    if not hammerShop then
-        print("[NpcService] No hammer shop — vagrant mingles at town")
-        npc.state = "IdleAtTown"
-        local town = WorldService.getTownCenterPos()
-        task.spawn(function()
-            while npc.state == "IdleAtTown" do
-                task.wait(math.random(4, 10))
-                if npc.state ~= "IdleAtTown" then break end
-                local offset = Vector3.new(math.random(-8, 8), 0, math.random(-8, 8))
-                moveNpcTo(npc, town + offset)
-            end
-        end)
-        return
-    end
-    -- Pause at town visibly yellow before walking to shop
-    local shopPos = (hammerShop :: BasePart).Position
-    local meetPos = Vector3.new(shopPos.X, 0, shopPos.Z + 4)
-    task.spawn(function()
-        task.wait(3)  -- player can clearly see the yellow hired NPC standing in town
-        if npc.state ~= "IdleAtTown" then return end
-        moveNpcTo(npc, meetPos)
-        for _ = 1, 15 do
-            task.wait(0.5)
-            if (getNpcPosition(npc) - meetPos).Magnitude < 4 then break end
+local function fetchTool(npc: NpcData)
+    local tools = WorldService.getGroundTools()
+    if #tools == 0 then return end
+
+    local myPos   = getNpcPosition(npc)
+    local nearest = tools[1]
+    for _, t in tools do
+        if (t.instance.Position - myPos).Magnitude < (nearest.instance.Position - myPos).Magnitude then
+            nearest = t
         end
-        npc.state = "Working"
-        startBuilderLoop(npc)
-        print("[NpcService] Vagrant became Builder")
+    end
+
+    npc.state = "FetchingTool"
+    moveNpcTo(npc, nearest.instance.Position)
+    task.spawn(function()
+        for _ = 1, 20 do
+            task.wait(0.5)
+            if npc.state ~= "FetchingTool" then return end
+            if not nearest.instance.Parent then
+                -- Grabbed by another NPC; go back to wandering
+                npc.state = "IdleAtTown"
+                return
+            end
+            if (getNpcPosition(npc) - nearest.instance.Position).Magnitude < 3 then
+                WorldService.removeGroundTool(nearest.instance)
+                nearest.instance:Destroy()
+                npc.state = "Working"
+                startBuilderLoop(npc)
+                print("[NpcService] Worker picked up tool, became Builder")
+                return
+            end
+        end
+        npc.state = "IdleAtTown"
+    end)
+end
+
+function NpcService.assignTool(npc: NpcData)
+    -- Always enter the wander loop first so the NPC is visible in town
+    npc.state = "IdleAtTown"
+    local town = WorldService.getTownCenterPos()
+
+    -- Wander loop: roam town visibly while waiting for a tool
+    task.spawn(function()
+        while npc.state == "IdleAtTown" do
+            task.wait(math.random(3, 7))
+            if npc.state ~= "IdleAtTown" then break end
+            local r = GameConfig.TOWN_RADIUS
+            moveNpcTo(npc, town + Vector3.new(math.random(-r, r), 0, math.random(-r, r)))
+        end
+    end)
+
+    -- Tool poll: notice when a hammer hits the ground and go fetch it
+    task.spawn(function()
+        while npc.state == "IdleAtTown" do
+            task.wait(1)
+            if npc.state ~= "IdleAtTown" then break end
+            if #WorldService.getGroundTools() > 0 then
+                fetchTool(npc)
+                break
+            end
+        end
     end)
 end
 

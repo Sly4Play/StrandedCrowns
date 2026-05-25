@@ -37,14 +37,17 @@ return {
     MAYOR_DEPOSIT_RADIUS = 8,
     MAYOR_BANK_STEAL_AMT = 5,
 
+    -- Town
+    TOWN_RADIUS = 20,   -- NPCs wander within this radius; shops sit near the edge
+
     -- Vagrant camps
     CAMP_COUNT           = 4,
-    CAMP_MAX_VAGRANTS    = 3,
-    CAMP_SPAWN_MIN       = 1,
-    CAMP_SPAWN_MAX       = 2,
+    CAMP_MAX_VAGRANTS    = 5,
+    CAMP_SPAWN_MIN       = 2,
+    CAMP_SPAWN_MAX       = 3,
     CAMP_MIN_DIST_PORTAL = 8,
     CAMP_MIN_DIST_SHORE  = 8,
-    CAMP_RADIUS          = 12,
+    CAMP_RADIUS          = 24,
 
     -- NPC speeds
     WORKER_WALK_SPEED  = 14,
@@ -53,7 +56,7 @@ return {
     -- Coin pickup
     COIN_PICKUP_RADIUS        = 2,
     HIRE_COIN_RADIUS          = 6,
-    VAGRANT_COIN_SCAN_RADIUS  = 10,  -- how far vagrants scan for player-dropped coins
+    VAGRANT_COIN_SCAN_RADIUS  = 8,   -- how far vagrants scan for player-dropped coins
     NPC_OVERFLOW_RADIUS       = 20,
     WORKER_COIN_PICKUP_DELAY  = 2,   -- seconds workers wait before collecting nearby ground coins
 
