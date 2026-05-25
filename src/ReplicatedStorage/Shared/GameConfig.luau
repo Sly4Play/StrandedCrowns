@@ -53,6 +53,7 @@ return {
     -- Coin pickup
     COIN_PICKUP_RADIUS        = 2,
     HIRE_COIN_RADIUS          = 6,
+    VAGRANT_COIN_SCAN_RADIUS  = 10,  -- how far vagrants scan for player-dropped coins
     NPC_OVERFLOW_RADIUS       = 20,
     WORKER_COIN_PICKUP_DELAY  = 2,   -- seconds workers wait before collecting nearby ground coins
 

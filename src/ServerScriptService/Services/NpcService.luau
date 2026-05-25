@@ -17,6 +17,11 @@ local _npcCounter = 0
 -- camp vagrant counts
 local _campCounts: {[number]: number} = {}
 
+-- NPC color palette
+local COLOR_VAGRANT = BrickColor.new("Medium stone grey")
+local COLOR_HIRED   = BrickColor.new("Bright yellow")
+local COLOR_BUILDER = BrickColor.new("Reddish brown")
+
 -- ── helpers ──────────────────────────────────────────────────────────────
 
 local function nextId(): string
@@ -45,6 +50,11 @@ local function makeNpcModel(name: string, color: BrickColor, pos: Vector3): Mode
     model.PrimaryPart = root
     model.Parent      = workspace
     return model
+end
+
+local function setNpcColor(npc: NpcData, color: BrickColor)
+    local root = npc.instance.PrimaryPart
+    if root then root.BrickColor = color end
 end
 
 local function moveNpcTo(npc: NpcData, target: Vector3)
@@ -86,6 +96,7 @@ local NpcService = {}
 local function becomeJobless(npc: NpcData, campId: number?)
     npc.state  = "Jobless"
     npc.campId = nil
+    setNpcColor(npc, COLOR_HIRED)
     if campId then
         _campCounts[campId] = math.max(0, (_campCounts[campId] or 1) - 1)
     end
@@ -182,10 +193,10 @@ local function spawnVagrant(campIdx: number, campPos: Vector3)
                 end
             end
 
-            -- Priority 2: player-dropped coin within pickup radius (ownerId > 0 = player)
+            -- Priority 2: player-dropped coin within scan radius (ownerId > 0 = player)
             local coins = CoinService.getGroundCoins()
             local nearestCoin = nil
-            local nearestCoinDist = GameConfig.COIN_PICKUP_RADIUS
+            local nearestCoinDist = GameConfig.VAGRANT_COIN_SCAN_RADIUS
             for _, coin in coins do
                 if coin.claimed or not coin.instance.Parent then continue end
                 if coin.ownerId == 0 then continue end  -- ignore worker overflow coins
@@ -242,6 +253,7 @@ local function tryHireVagrant(player: Player, pos: Vector3)
         -- Cost 1 coin
         if not CoinService.spend(player.UserId, 1) then continue end
         npc.state = "HiredWalking"
+        setNpcColor(npc, COLOR_HIRED)
         local campIdx = npc.campId
         if campIdx then
             _campCounts[campIdx] = math.max(0, (_campCounts[campIdx] or 1) - 1)
@@ -299,6 +311,7 @@ local _droppedTools: {GroundToolEntry} = {}
 local function startBuilderLoop(npc: NpcData)
     npc.profession = "Builder"
     npc.maxPurse   = GameConfig.BUILDER_PURSE_MAX
+    setNpcColor(npc, COLOR_BUILDER)
     local humanoid = npc.instance:FindFirstChildOfClass("Humanoid")
     if humanoid then humanoid.WalkSpeed = GameConfig.WORKER_WALK_SPEED end
 
@@ -380,10 +393,15 @@ function NpcService.assignTool(npc: NpcData)
         end)
         return
     end
-    -- Vagrant walks to shop
-    moveNpcTo(npc, (hammerShop :: BasePart).Position)
+    -- Move NPC to ground-level spot beside the shop (not inside it)
+    local shopPos = (hammerShop :: BasePart).Position
+    local meetPos = Vector3.new(shopPos.X, 0, shopPos.Z + 4)
+    moveNpcTo(npc, meetPos)
     task.spawn(function()
-        task.wait(4) -- travel time approximation
+        for _ = 1, 15 do
+            task.wait(0.5)
+            if (getNpcPosition(npc) - meetPos).Magnitude < 4 then break end
+        end
         npc.state = "Working"
         startBuilderLoop(npc)
         print("[NpcService] Vagrant became Builder")
