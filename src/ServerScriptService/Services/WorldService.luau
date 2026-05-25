@@ -72,7 +72,11 @@ local function makePortal(pos: Vector3): BasePart
     p.BrickColor = BrickColor.new("Dark indigo")
     p.Material   = Enum.Material.Neon
     p.Anchored   = true
+    p.CanCollide = true
+    p.CollisionGroup = "Portal"
     p.Position   = pos + Vector3.new(0, 4, 0)
+    p:SetAttribute("Health",    GameConfig.PORTAL_HEALTH)
+    p:SetAttribute("MaxHealth", GameConfig.PORTAL_HEALTH)
     p.Parent     = workspace
     return p
 end
@@ -101,6 +105,7 @@ local function makeTree(id: string, pos: Vector3, treeSize: number): Model
     trunk.Size       = Vector3.new(trunkW, trunkH, trunkW)
     trunk.BrickColor = BrickColor.new("Reddish brown")
     trunk.Anchored   = true
+    trunk.CanCollide = true   -- blocks movement; NPCs and players bump into trunks
     trunk.Position   = pos + Vector3.new(0, trunkY, 0)
     trunk.Parent     = model
 
@@ -109,6 +114,7 @@ local function makeTree(id: string, pos: Vector3, treeSize: number): Model
     leaves.Size       = Vector3.new(leavesW, leavesH, leavesW)
     leaves.BrickColor = BrickColor.new("Bright green")
     leaves.Anchored   = true
+    leaves.CanCollide = false  -- canopy is visual-only; walk under/through it freely
     leaves.Position   = pos + Vector3.new(0, leavesY, 0)
     leaves.Parent     = model
 
@@ -158,6 +164,44 @@ local function makeBowShop(pos: Vector3): BasePart
     local p = makeShop(pos, "Bow", BrickColor.new("Bright blue"), Vector3.new(16, 2, 0))
     initRack(p, "Bow")
     return p
+end
+
+local function makeIslandBoundary(center: Vector3, radius: number)
+    local segments = 48
+    local step     = (2 * math.pi) / segments
+    local chord    = 2 * radius * math.sin(step / 2) + 0.3
+    for i = 0, segments - 1 do
+        local angle = i * step
+        local x     = center.X + math.cos(angle) * radius
+        local z     = center.Z + math.sin(angle) * radius
+        local p         = Instance.new("Part")
+        p.Name          = "IslandBoundary"
+        p.Size          = Vector3.new(chord, 0.4, 0.6)
+        p.CFrame        = CFrame.new(x, center.Y + 0.3, z)
+                          * CFrame.Angles(0, -(angle + math.pi / 2), 0)
+        p.Anchored      = true
+        p.CanCollide    = false
+        p.Transparency  = 0.45
+        p.BrickColor    = BrickColor.new("Cyan")
+        p.Material      = Enum.Material.Neon
+        p.Parent        = workspace
+    end
+    -- Tall posts every 45° so the boundary is visible from across the island
+    for i = 0, 7 do
+        local angle   = i * (math.pi / 4)
+        local x       = center.X + math.cos(angle) * radius
+        local z       = center.Z + math.sin(angle) * radius
+        local post        = Instance.new("Part")
+        post.Name         = "IslandBoundaryPost"
+        post.Size         = Vector3.new(0.6, 8, 0.6)
+        post.BrickColor   = BrickColor.new("Cyan")
+        post.Material     = Enum.Material.Neon
+        post.Anchored     = true
+        post.CanCollide   = false
+        post.Transparency = 0.4
+        post.Position     = Vector3.new(x, center.Y + 4, z)
+        post.Parent       = workspace
+    end
 end
 
 local function makeTownBoundary(center: Vector3, radius: number)
@@ -278,19 +322,37 @@ function WorldService.buildIsland(islandIdx: number?)
     _spawn               = sp
 
     makeTownBoundary(center, GameConfig.TOWN_RADIUS)
+    makeIslandBoundary(center, radius)
 
-    local pn = makePortal(GameConfig.PORTAL_NORTH_POS)
-    local ps = makePortal(GameConfig.PORTAL_SOUTH_POS)
+    -- Portals sit at the island edge on the N/S axis, matching the per-island radius
+    local portalNorthPos = center + Vector3.new(0, 0, -radius)
+    local portalSouthPos = center + Vector3.new(0, 0,  radius)
+    local pn = makePortal(portalNorthPos)
+    local ps = makePortal(portalSouthPos)
     table.insert(_portals, pn)
     table.insert(_portals, ps)
 
-    local portalPositions = {GameConfig.PORTAL_NORTH_POS, GameConfig.PORTAL_SOUTH_POS}
+    local portalPositions = {portalNorthPos, portalSouthPos}
 
     local forbidden = {
         GameConfig.PORTAL_NORTH_POS,
         GameConfig.PORTAL_SOUTH_POS,
         center,
     }
+
+    -- Pre-compute the 8 town structure spots (4 towers + 4 barricades) so no tree
+    -- spawns on top of a build foundation.
+    local structureSpots: {Vector3} = {}
+    do
+        local r = GameConfig.TOWN_RADIUS
+        for _, theta in {0, math.pi/2, math.pi, 3*math.pi/2} do
+            local radial  = Vector3.new(math.cos(theta), 0, math.sin(theta))
+            local tangent = Vector3.new(-math.sin(theta), 0, math.cos(theta))
+            local base    = center + radial * r
+            table.insert(structureSpots, base + tangent * (-2.5))  -- tower
+            table.insert(structureSpots, base + tangent *   3.5)   -- barricade
+        end
+    end
 
     local placedTrees: {{pos: Vector3, size: number}} = {}
 
@@ -304,11 +366,12 @@ function WorldService.buildIsland(islandIdx: number?)
             attempts += 1
             if not tooClose(pos, {center}, GameConfig.TREE_MIN_DIST_TOWN)
                 and not tooClose(pos, portalPositions, GameConfig.TREE_MIN_DIST_PORTAL)
+                and not tooClose(pos, structureSpots, 8)
                 and not tooCloseToTrees(pos, placedTrees, treeSize) then
                 placed = true
                 break
             end
-        until attempts >= 50
+        until attempts >= 80
         if not placed then
             warn("[WorldService] tree", i, "could not be placed — skipped")
             continue
@@ -373,6 +436,7 @@ function WorldService.buildIsland(islandIdx: number?)
     end
 
     spawnBrokenBoat()
+    WorldService.spawnTownStructures()
 
     local treeCount = 0
     for _ in _trees do treeCount += 1 end
@@ -392,8 +456,15 @@ function WorldService.setSpawnAtTown()
 end
 
 function WorldService.getPortals(): {BasePart}
-    local copy = {}
-    for _, p in _portals do table.insert(copy, p) end
+    local copy  = {}
+    local alive = {}
+    for _, p in _portals do
+        if p.Parent then
+            table.insert(copy,  p)
+            table.insert(alive, p)
+        end
+    end
+    _portals = alive  -- prune destroyed portals so Greed stops spawning from them
     return copy
 end
 
@@ -441,15 +512,51 @@ end
 function WorldService.removeTree(treeId: string)
     local t = _trees[treeId]
     if not t then return end
-    if t.instance.Parent then t.instance:Destroy() end
-    _trees[treeId] = nil
-    local grass      = Instance.new("Part")
-    grass.Name       = "Grass"
-    grass.Size       = Vector3.new(4, 0.2, 4)
-    grass.BrickColor = BrickColor.new("Bright green")
-    grass.Anchored   = true
-    grass.Position   = t.position + Vector3.new(0, 0.1, 0)
-    grass.Parent     = workspace
+    _trees[treeId] = nil  -- deregister immediately so no second chop is attempted
+
+    local model = t.instance
+    local pos   = t.position
+    if not model.Parent then return end
+
+    -- collect parts + snapshot CFrames before animation starts
+    local parts   : {BasePart} = {}
+    local initCFs : {CFrame}   = {}
+    for _, desc in model:GetDescendants() do
+        if desc:IsA("BasePart") then
+            table.insert(parts,   desc)
+            table.insert(initCFs, desc.CFrame)
+        end
+    end
+
+    local fallAngle = math.random() * 2 * math.pi
+    local axis      = Vector3.new(-math.sin(fallAngle), 0, math.cos(fallAngle))
+    local pivotCF   = CFrame.new(pos.X, 0, pos.Z)
+    local DURATION  = 0.75
+
+    task.spawn(function()
+        local startTime = tick()
+        repeat
+            local tNorm = math.min((tick() - startTime) / DURATION, 1)
+            local angle = (tNorm ^ 2) * math.rad(90)  -- ease-in: slow start, fast end
+            local rotCF = CFrame.fromAxisAngle(axis, angle)
+            for i, part in parts do
+                if part.Parent then
+                    part.CFrame = pivotCF * rotCF * (pivotCF:Inverse() * initCFs[i])
+                end
+            end
+            task.wait()
+        until tNorm >= 1
+
+        if model.Parent then model:Destroy() end
+        local grass      = Instance.new("Part")
+        grass.Name       = "Grass"
+        grass.Size       = Vector3.new(4, 0.2, 4)
+        grass.BrickColor = BrickColor.new("Bright green")
+        grass.Anchored   = true
+        grass.CanCollide = false  -- visual only; NPCs must not snag on stump markers
+        grass.Position   = pos + Vector3.new(0, 0.1, 0)
+        grass.Parent     = workspace
+    end)
 end
 
 function WorldService.registerGroundTool(inst: BasePart, pos: Vector3)
@@ -596,9 +703,10 @@ function WorldService.spawnTownStructures()
         local tower   = Instance.new("Part")
         tower.Name    = "Tower_Foundation_" .. labels[idx]
         tower.Size    = Vector3.new(3, tH, 3)
-        tower.BrickColor  = BrickColor.new("Medium stone grey")
+        tower.BrickColor  = BrickColor.new("Reddish brown")
         tower.Transparency = 0.5
         tower.Anchored    = true
+        tower.CanCollide  = false  -- passable until built
         tower.CFrame      = CFrame.lookAt(tPos, Vector3.new(center.X, tPos.Y, center.Z))
         tower.Parent      = workspace
         tower:SetAttribute("StructureType",   "Tower")
@@ -614,9 +722,10 @@ function WorldService.spawnTownStructures()
         local barricade  = Instance.new("Part")
         barricade.Name   = "Barricade_Foundation_" .. labels[idx]
         barricade.Size   = Vector3.new(6, bH, 2)
-        barricade.BrickColor  = BrickColor.new("Medium stone grey")
+        barricade.BrickColor  = BrickColor.new("Bright pink")
         barricade.Transparency = 0.5
         barricade.Anchored    = true
+        barricade.CanCollide  = false  -- passable until built
         barricade.CFrame      = CFrame.lookAt(bPos, Vector3.new(center.X, bPos.Y, center.Z))
         barricade.Parent      = workspace
         barricade:SetAttribute("StructureType",   "Barricade")
@@ -628,6 +737,19 @@ function WorldService.spawnTownStructures()
     end
 
     print("[WorldService] Town Level 1 structures spawned (4 tower+barricade pairs)")
+end
+
+-- Instantly completes all Level-0 foundations (triggered by firepit upgrade instead of NPC build time)
+function WorldService.autoCompleteTownStructures()
+    for _, child in workspace:GetChildren() do
+        if not child:IsA("BasePart") then continue end
+        if child:GetAttribute("Level") ~= 0 then continue end
+        local n = child.Name
+        if n:sub(1, 16) == "Tower_Foundation" or n:sub(1, 20) == "Barricade_Foundation" then
+            WorldService.markStructureBuilt(child :: BasePart)
+        end
+    end
+    print("[WorldService] Town structures auto-completed via firepit upgrade")
 end
 
 function WorldService.getUnbuiltStructures(): {BasePart}
@@ -647,9 +769,15 @@ end
 function WorldService.markStructureBuilt(inst: BasePart)
     inst:SetAttribute("Level", 1)
     inst:SetAttribute("BuildInProgress", false)
-    inst.Transparency = 0
-    inst.BrickColor   = BrickColor.new("Dark stone grey")
-    inst.Name         = inst.Name:gsub("_Foundation", "")
+    inst.Transparency    = 0
+    inst.CanCollide      = true
+    inst.BrickColor      = BrickColor.new("Dark stone grey")
+    inst.CollisionGroup  = "Defense"
+    inst.Name            = inst.Name:gsub("_Foundation", "")
+    -- Barricades are weaker than towers
+    local isBarricade = inst.Name:find("Barricade") ~= nil
+    inst:SetAttribute("Health",    isBarricade and GameConfig.BARRICADE_HEALTH or GameConfig.BARRICADE_HEALTH * 2)
+    inst:SetAttribute("MaxHealth", isBarricade and GameConfig.BARRICADE_HEALTH or GameConfig.BARRICADE_HEALTH * 2)
     print("[WorldService] Built:", inst.Name)
 end
 

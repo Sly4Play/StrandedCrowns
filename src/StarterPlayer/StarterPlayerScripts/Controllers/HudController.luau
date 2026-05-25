@@ -59,7 +59,7 @@ local PHASE_DUR:   {[string]: number} = {
 -- Ambient colour endpoints
 local AMB_DAY:   Color3 = Color3.fromRGB(110, 110, 110)
 local AMB_DUSK:  Color3 = Color3.fromRGB( 90,  55,  35)
-local AMB_NIGHT: Color3 = Color3.fromRGB( 25,  25,  55)
+local AMB_NIGHT: Color3 = Color3.fromRGB( 75,  75, 110)
 local AMB_DAWN:  Color3 = Color3.fromRGB(100, 105, 115)  -- brighter dawn start, near day-grey
 
 local _phase      = "Dawn"
@@ -104,7 +104,7 @@ RunService.Heartbeat:Connect(function()
 
     -- Brightness
     if _phase == "Night" then
-        Lighting.Brightness = 0.4
+        Lighting.Brightness = 0.85
     elseif _phase == "Dusk" then
         Lighting.Brightness = 1.5 - t * 1.1
     elseif _phase == "Dawn" then

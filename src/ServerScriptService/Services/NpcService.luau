@@ -45,7 +45,8 @@ local function makeNpcModel(name: string, color: BrickColor, pos: Vector3): Mode
     root.Name       = "HumanoidRootPart"
     root.Size       = Vector3.new(2, 3, 1)
     root.BrickColor = color
-    root.CanCollide = false
+    root.CanCollide     = false  -- NPCs phase through obstacles; Humanoid handles floor grounding
+    root.CollisionGroup = "Friendly"
     root.Position   = pos + Vector3.new(0, 1.5, 0)
     root.Parent     = model
 
@@ -78,6 +79,19 @@ end
 local function getNpcPosition(npc: NpcData): Vector3
     local root = npc.instance.PrimaryPart
     return root and root.Position or Vector3.new(0, 0, 0)
+end
+
+-- When stuck against an obstacle, sidestep 5 studs perpendicular to the target
+-- direction (randomly left or right) then re-issue the real target.
+local function nudgeAroundObstacle(npc: NpcData, target: Vector3)
+    local myPos   = getNpcPosition(npc)
+    local flatDir = Vector3.new(target.X - myPos.X, 0, target.Z - myPos.Z)
+    if flatDir.Magnitude < 0.5 then return end
+    local forward = flatDir.Unit
+    local side    = (math.random() < 0.5)
+                    and Vector3.new(-forward.Z, 0, forward.X)
+                    or  Vector3.new( forward.Z, 0, -forward.X)
+    moveNpcTo(npc, myPos + side * 5 + forward)
 end
 
 local function collectNearbyCoins(npc: NpcData)
@@ -116,6 +130,7 @@ local function becomeJobless(npc: NpcData, campId: number?)
     local town = WorldService.getTownCenterPos()
     moveNpcTo(npc, town)
     task.spawn(function()
+        local lastJoblessPos = getNpcPosition(npc)
         while npc.state == "Jobless" do
             task.wait(1)
             if (getNpcPosition(npc) - town).Magnitude < 10 then
@@ -123,6 +138,13 @@ local function becomeJobless(npc: NpcData, campId: number?)
                 NpcService.assignTool(npc)
                 break
             end
+            local curPos = getNpcPosition(npc)
+            if (curPos - lastJoblessPos).Magnitude < 1.5 then
+                nudgeAroundObstacle(npc, town)
+            else
+                moveNpcTo(npc, town)
+            end
+            lastJoblessPos = curPos
         end
     end)
 end
@@ -290,12 +312,21 @@ local function tryHireHomeless(player: Player, pos: Vector3)
         print("[NpcService] Homeless hired, walking to town")
 
         task.spawn(function()
+            local lastHiredPos = getNpcPosition(npc)
             while npc.state == "HiredWalking" do
                 task.wait(1)
                 if (getNpcPosition(npc) - town).Magnitude < 10 then
                     npc.state = "IdleAtTown"
                     NpcService.assignTool(npc)
+                    break
                 end
+                local curPos = getNpcPosition(npc)
+                if (curPos - lastHiredPos).Magnitude < 1.5 then
+                    nudgeAroundObstacle(npc, town)
+                else
+                    moveNpcTo(npc, town)
+                end
+                lastHiredPos = curPos
             end
         end)
         return
@@ -350,14 +381,28 @@ local function startWorkerLoop(npc: NpcData)
             local buildJobs = WorldService.getAvailableBuildJobs()
 
             if #marked == 0 and #buildJobs == 0 then
-                -- Nothing to do: slow wander in the outer ring
+                -- Nothing to do: slow wander; pick a target and re-issue every 2s so the
+                -- NPC doesn't freeze if Humanoid:MoveTo times out (8s Roblox limit) or hits an obstacle
                 setNpcSpeed(npc, GameConfig.NPC_WANDER_SPEED)
                 local town  = WorldService.getTownCenterPos()
                 local r     = GameConfig.TOWN_RADIUS
                 local angle = math.random() * 2 * math.pi
-                local dist  = r * (0.6 + math.random() * 0.4)
-                moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
-                task.wait(5)
+                local dist  = r * (0.5 + math.random() * 0.4)
+                local wanderTarget = town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+                moveNpcTo(npc, wanderTarget)
+                local lastCheckPos = getNpcPosition(npc)
+                for _ = 1, 3 do  -- up to 6 seconds total before re-picking
+                    task.wait(2)
+                    if npc.state ~= "Working" then break end
+                    local curPos = getNpcPosition(npc)
+                    if (curPos - wanderTarget).Magnitude < 4 then break end
+                    if (curPos - lastCheckPos).Magnitude < 1.5 then
+                        nudgeAroundObstacle(npc, wanderTarget)
+                    else
+                        moveNpcTo(npc, wanderTarget)  -- re-issue in case of MoveTo timeout
+                    end
+                    lastCheckPos = curPos
+                end
                 continue
             end
 
@@ -386,8 +431,23 @@ local function startWorkerLoop(npc: NpcData)
             if nearestTree and (not nearestJob or nearestTreeDist <= nearestJobDist) then
                 -- ── Chop tree ────────────────────────────────────────────────
                 setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
-                moveNpcTo(npc, nearestTree.position)
-                task.wait(nearestTreeDist / GameConfig.NPC_RUN_SPEED + 1)
+                local treeTarget = nearestTree.position
+                moveNpcTo(npc, treeTarget)
+                do  -- travel with stuck detection
+                    local deadline    = tick() + nearestTreeDist / GameConfig.NPC_RUN_SPEED + 4
+                    local lastTPos    = getNpcPosition(npc)
+                    while tick() < deadline and npc.state == "Working" do
+                        task.wait(1)
+                        local cur = getNpcPosition(npc)
+                        if (cur - treeTarget).Magnitude < 5 then break end
+                        if (cur - lastTPos).Magnitude < 1.5 then
+                            nudgeAroundObstacle(npc, treeTarget)
+                        else
+                            moveNpcTo(npc, treeTarget)
+                        end
+                        lastTPos = cur
+                    end
+                end
                 if npc.state ~= "Working" then continue end
 
                 local trees = WorldService.getMarkedTrees()
@@ -415,8 +475,23 @@ local function startWorkerLoop(npc: NpcData)
                 target:SetAttribute("CurrentBuilders", curB + 1)
 
                 setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
-                moveNpcTo(npc, nearestJob.position)
-                task.wait(nearestJobDist / GameConfig.NPC_RUN_SPEED + 1)
+                local jobTarget = nearestJob.position
+                moveNpcTo(npc, jobTarget)
+                do  -- travel with stuck detection
+                    local deadline = tick() + nearestJobDist / GameConfig.NPC_RUN_SPEED + 4
+                    local lastJPos = getNpcPosition(npc)
+                    while tick() < deadline and npc.state == "Working" do
+                        task.wait(1)
+                        local cur = getNpcPosition(npc)
+                        if (cur - jobTarget).Magnitude < 5 then break end
+                        if (cur - lastJPos).Magnitude < 1.5 then
+                            nudgeAroundObstacle(npc, jobTarget)
+                        else
+                            moveNpcTo(npc, jobTarget)
+                        end
+                        lastJPos = cur
+                    end
+                end
 
                 if npc.state ~= "Working" then
                     if target.Parent then
@@ -576,7 +651,9 @@ function NpcService.assignTool(npc: NpcData)
 
     task.spawn(function()
         local lastWander  = 0
-        local wanderDelay = math.random(3, 7)
+        local wanderDelay = math.random(1, 3)
+        local lastWanderTarget = town
+        local lastWanderPos    = getNpcPosition(npc)
         while npc.state == "IdleAtTown" and (npc :: any)._gen == gen do
             if npc.state ~= "IdleAtTown" or (npc :: any)._gen ~= gen then break end
 
@@ -595,15 +672,25 @@ function NpcService.assignTool(npc: NpcData)
                 if npc.state == "FetchingTool" then break end
             end
 
-            -- Wander only when no tools are available
+            -- Wander when no tools available; re-issue MoveTo every half-second to beat
+            -- the 8s Roblox MoveTo timeout and push through minor obstacles
             local now = tick()
             if now - lastWander >= wanderDelay then
-                lastWander   = now
-                wanderDelay  = math.random(3, 7)
+                lastWander        = now
+                wanderDelay       = math.random(2, 4)
                 setNpcSpeed(npc, GameConfig.NPC_WANDER_SPEED)
                 local angle = math.random() * 2 * math.pi
-                local dist  = math.random() * (GameConfig.TOWN_RADIUS * 0.5)
-                moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
+                local dist  = math.random() * (GameConfig.TOWN_RADIUS * 0.45)
+                lastWanderTarget  = town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+                lastWanderPos     = getNpcPosition(npc)
+                moveNpcTo(npc, lastWanderTarget)
+            else
+                -- Re-issue if stuck (hasn't moved 1.5 studs since last wander tick)
+                local curPos = getNpcPosition(npc)
+                if (curPos - lastWanderPos).Magnitude < 1.5 then
+                    nudgeAroundObstacle(npc, lastWanderTarget)
+                end
+                lastWanderPos = curPos
             end
 
             task.wait(0.5)

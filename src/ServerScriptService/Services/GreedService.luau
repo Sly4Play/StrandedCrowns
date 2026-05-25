@@ -10,6 +10,7 @@ type GreedData = {
     id: string, instance: Model,
     state: string, target: any?,
     portalPos: Vector3,
+    lastHitAt: number,
 }
 
 local _greeds: {[string]: GreedData} = {}
@@ -30,7 +31,8 @@ local function makeGreedModel(id: string, pos: Vector3): Model
     root.Name       = "HumanoidRootPart"
     root.Size       = Vector3.new(2, 3, 1)
     root.BrickColor = BrickColor.new("Bright red")
-    root.CanCollide = false
+    root.CanCollide     = true
+    root.CollisionGroup = "Greed"
     root.Position   = pos + Vector3.new(0, 1.5, 0)
     root.Parent     = model
 
@@ -85,6 +87,7 @@ local function spawnWave(portalPos: Vector3, quota: number)
                 id = id, instance = model,
                 state = "Scanning", target = nil,
                 portalPos = portalPos,
+                lastHitAt = 0,
             }
             _greeds[id] = gd
 
@@ -281,6 +284,25 @@ function GreedService.runAI(gd: GreedData)
                     if (g - myPos).Magnitude < (nearest - myPos).Magnitude then nearest = g end
                 end
                 moveGreed(gd, nearest, GameConfig.GREED_SPEED)
+
+                -- Attack any built Defense (barricade/tower) within melee range (1 hit/2s)
+                local now = tick()
+                if now - gd.lastHitAt >= 2 then
+                    for _, child in workspace:GetChildren() do
+                        if not child:IsA("BasePart") then continue end
+                        if (child :: BasePart).CollisionGroup ~= "Defense" then continue end
+                        if (child.Position - myPos).Magnitude < 5 then
+                            gd.lastHitAt = now
+                            local hp = math.max(0, (child:GetAttribute("Health") or 0) - 1)
+                            child:SetAttribute("Health", hp)
+                            if hp <= 0 then
+                                child:Destroy()
+                                print("[Greed] Destroyed", child.Name)
+                            end
+                            break
+                        end
+                    end
+                end
             end
 
         elseif gd.state == "Pursuing" then

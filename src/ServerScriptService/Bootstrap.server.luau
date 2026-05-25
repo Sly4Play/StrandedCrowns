@@ -1,3 +1,30 @@
+-- ── Collision groups (must be registered before any parts exist) ────────────
+local PhysicsService = game:GetService("PhysicsService")
+local _colGroups = {"Friendly", "Greed", "Defense", "Portal"}
+for _, g in _colGroups do
+    pcall(function() PhysicsService:RegisterCollisionGroup(g) end)
+end
+PhysicsService:CollisionGroupSetCollidable("Friendly", "Defense",   false)  -- players/workers walk through own walls
+PhysicsService:CollisionGroupSetCollidable("Greed",    "Portal",   false)  -- Greed can re-enter their own portal
+PhysicsService:CollisionGroupSetCollidable("Friendly", "Friendly", false)  -- players/NPCs don't block each other
+
+-- Assign player characters to the Friendly collision group
+local _Players = game:GetService("Players")
+local function assignFriendly(character: Model)
+    local function setGroup(inst: Instance)
+        if inst:IsA("BasePart") then (inst :: BasePart).CollisionGroup = "Friendly" end
+    end
+    for _, d in character:GetDescendants() do setGroup(d) end
+    character.DescendantAdded:Connect(setGroup)
+end
+_Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(assignFriendly)
+    if player.Character then assignFriendly(player.Character) end
+end)
+for _, player in _Players:GetPlayers() do
+    if player.Character then assignFriendly(player.Character) end
+end
+
 local Shared      = game:GetService("ReplicatedStorage").Shared
 local Services    = game:GetService("ServerScriptService").Services
 local GameConfig  = require(Shared.GameConfig)
@@ -92,7 +119,11 @@ Remotes.BuyBow.OnServerInvoke = function(player: Player): boolean
 end
 
 Remotes.MarkTree.OnServerInvoke = function(player: Player, treeId: string): boolean
-    if WorldService.getPlayerMarkCount(player.UserId) >= GameConfig.TREE_MAX_PLAYER_MARKS then return false end
+    if WorldService.getPlayerMarkCount(player.UserId) >= GameConfig.TREE_MAX_PLAYER_MARKS then
+        -- No coin was spent; fire CoinChanged to correct the client's optimistic HUD decrement
+        Remotes.CoinChanged:FireClient(player, CoinService.getPurse(player.UserId))
+        return false
+    end
     if not CoinService.spend(player.UserId, GameConfig.TREE_MARK_COST) then
         scatterCoinsOnFail(player, GameConfig.TREE_MARK_COST)
         return false
@@ -127,7 +158,7 @@ Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
         if fire then fire.Size = 6 + _firepitLevel * 2 end
     end
     if _firepitLevel == 1 then
-        WorldService.spawnTownStructures()
+        WorldService.autoCompleteTownStructures()
     end
     local nextCost = costs[_firepitLevel + 1]
     Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nextCost)
@@ -143,4 +174,57 @@ Remotes.MarkBoat.OnServerInvoke = function(player: Player): boolean
     local ok = WorldService.markBoatForRepair()
     if not ok then CoinService.award(player.UserId, GameConfig.BOAT_REPAIR_COST) end
     return ok
+end
+
+-- 1 coin = 1 build progress tick on the nearest Level-0 foundation within interact radius
+Remotes.BuildStructure.OnServerInvoke = function(player: Player): boolean
+    local char = player.Character
+    local pos  = char and char.PrimaryPart and char.PrimaryPart.Position
+    if not pos then return false end
+    local nearest: BasePart? = nil
+    local nearestDist = GameConfig.STRUCTURE_INTERACT_RADIUS
+    for _, child in workspace:GetChildren() do
+        if not child:IsA("BasePart") then continue end
+        if child:GetAttribute("Level") ~= 0 then continue end
+        local n = child.Name
+        if not (n:sub(1, 16) == "Tower_Foundation" or n:sub(1, 20) == "Barricade_Foundation") then continue end
+        local d = ((child :: BasePart).Position - pos).Magnitude
+        if d < nearestDist then nearestDist = d; nearest = child :: BasePart end
+    end
+    if not nearest then return false end
+    if not CoinService.spend(player.UserId, 1) then
+        scatterCoinsOnFail(player, 1)
+        return false
+    end
+    local progress = (nearest:GetAttribute("BuildProgress") or 0) + 1
+    local required = nearest:GetAttribute("BuildRequired") or GameConfig.STRUCTURE_BUILD_DURATION
+    nearest:SetAttribute("BuildProgress", progress)
+    if progress >= required then
+        WorldService.markStructureBuilt(nearest)
+        print("[Bootstrap] Structure built by player:", player.Name, nearest.Name)
+    end
+    return true
+end
+
+-- Returns remaining portal HP, or -1 if no portal in range
+Remotes.AttackPortal.OnServerInvoke = function(player: Player): number
+    local char = player.Character
+    local pos  = char and char.PrimaryPart and char.PrimaryPart.Position
+    if not pos then return -1 end
+    local portals = WorldService.getPortals()
+    local nearest: BasePart? = nil
+    local nearestDist = GameConfig.PORTAL_INTERACT_RADIUS
+    for _, portal in portals do
+        local d = (portal.Position - pos).Magnitude
+        if d < nearestDist then nearestDist = d; nearest = portal end
+    end
+    if not nearest then return -1 end
+    local hp = math.max(0, (nearest:GetAttribute("Health") or 0) - 1)
+    nearest:SetAttribute("Health", hp)
+    if hp <= 0 then
+        nearest:Destroy()
+        print("[Bootstrap] Portal destroyed by", player.Name)
+        return 0
+    end
+    return hp
 end

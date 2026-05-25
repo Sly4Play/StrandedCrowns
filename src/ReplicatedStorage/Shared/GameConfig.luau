@@ -9,11 +9,11 @@ return {
     TOWN_CENTER_POS  = Vector3.new(  0, 0,    0),
     PORTAL_NORTH_POS = Vector3.new(  0, 0, -240),
     PORTAL_SOUTH_POS = Vector3.new(  0, 0,  240),
-    ISLAND_RADIUS    = 160,  -- fallback; per-island values below take priority
+    ISLAND_RADIUS    = 240,  -- fallback; per-island values below take priority
 
     -- Per-island scaling. Island 5 must fit: main dungeon + lighthouse + 8 portals.
-    ISLAND_RADIUS_BY_ISLAND = {160, 195, 230, 270, 340},
-    TREE_COUNT_BY_ISLAND    = { 45,  58,  72,  88, 110},
+    ISLAND_RADIUS_BY_ISLAND = {240, 295, 345, 405, 510},
+    TREE_COUNT_BY_ISLAND    = { 88, 113, 144, 181, 219},
 
     -- Gate positions (placeholder — no gate models in Phase 1)
     GATE_NORTH = Vector3.new(  0, 0, -40),
@@ -83,7 +83,7 @@ return {
     BARRICADE_MAX_BUILDERS   = 2,
 
     -- Trees
-    TREE_MAX_PLAYER_MARKS = 2,
+    TREE_MAX_PLAYER_MARKS = 16,  -- total marked trees allowed at once
     TREE_COUNT           = 45,
     TREE_MIN_DIST_TOWN   = 15,
     TREE_MIN_DIST_PORTAL = 12,
@@ -97,6 +97,12 @@ return {
     BOAT_REPAIR_COST     = 10,
     BOAT_REPAIR_DURATION = 120,
     BOAT_MAX_BUILDERS    = 3,
+
+    -- Destructibles
+    PORTAL_HEALTH              = 20,  -- hits to kill a portal
+    BARRICADE_HEALTH           = 10,  -- hits to destroy a built barricade
+    PORTAL_INTERACT_RADIUS     = 12,  -- studs player must be within to attack a portal
+    STRUCTURE_INTERACT_RADIUS  = 12,  -- studs player must be within to contribute a build tick
 
     -- Greed
     GREED_SPAWN_INTERVAL = 1,

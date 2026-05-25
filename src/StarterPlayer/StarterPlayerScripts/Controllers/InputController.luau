@@ -10,11 +10,11 @@ local BUY_RADIUS = 5
 
 -- ── Interactive registry ──────────────────────────────────────────────────
 
-type Interactive = { part: BasePart, cost: number, action: () -> boolean, condition: (() -> boolean)? }
+type Interactive = { part: BasePart, cost: number, action: () -> boolean, condition: (() -> boolean)?, maxDist: number? }
 local _interactives: {Interactive} = {}
 
-local function register(part: BasePart, cost: number, action: () -> boolean, condition: (() -> boolean)?)
-    table.insert(_interactives, { part = part, cost = cost, action = action, condition = condition })
+local function register(part: BasePart, cost: number, action: () -> boolean, condition: (() -> boolean)?, maxDist: number?)
+    table.insert(_interactives, { part = part, cost = cost, action = action, condition = condition, maxDist = maxDist })
 end
 
 -- ── Coin bubble ───────────────────────────────────────────────────────────
@@ -67,12 +67,13 @@ local function findNearest(): (Interactive?, Vector3)
     local pos = char.PrimaryPart.Position
 
     local best: Interactive? = nil
-    local bestDist = BUY_RADIUS
+    local bestDist = math.huge
     for _, item in _interactives do
         if not item.part.Parent then continue end
         if item.condition and not item.condition() then continue end
-        local d = (item.part.Position - pos).Magnitude
-        if d < bestDist then
+        local d    = (item.part.Position - pos).Magnitude
+        local limit = item.maxDist or BUY_RADIUS
+        if d < limit and d < bestDist then
             bestDist = d
             best     = item
         end
@@ -110,7 +111,7 @@ local function streamBuy(best: Interactive, fromPos: Vector3)
 
         local coin      = Instance.new("Part")
         coin.Name       = "CoinFX"
-        coin.Size       = Vector3.new(0.45, 0.45, 0.45)
+        coin.Size       = Vector3.new(1.35, 1.35, 1.35)
         coin.Shape      = Enum.PartType.Ball
         coin.BrickColor = BrickColor.new("Bright yellow")
         coin.Material   = Enum.Material.Neon
@@ -124,7 +125,7 @@ local function streamBuy(best: Interactive, fromPos: Vector3)
         local mid = (fromPos + best.part.Position) / 2 + Vector3.new(0, 4, 0)
 
         local t1 = TweenService:Create(coin,
-            TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
             { Position = mid })
         t1:Play()
         t1.Completed:Wait()
@@ -132,7 +133,7 @@ local function streamBuy(best: Interactive, fromPos: Vector3)
         if _cancelStream then coin:Destroy() resetLabel() return end
 
         local t2 = TweenService:Create(coin,
-            TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+            TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
             { Position = best.part.Position, Size = Vector3.new(0.05, 0.05, 0.05) })
         t2:Play()
         t2.Completed:Wait()
@@ -252,7 +253,13 @@ local function watchForTrees()
         task.spawn(function()
             local trunk = child:WaitForChild("Trunk", 5)
             if not trunk or not trunk:IsA("BasePart") then return end
-            if child:GetAttribute("TreeSize") ~= 1 then return end
+            -- TreeSize attribute may not have replicated yet; wait for it
+            local treeSize = child:GetAttribute("TreeSize")
+            if treeSize == nil then
+                child:GetAttributeChangedSignal("TreeSize"):Wait()
+                treeSize = child:GetAttribute("TreeSize")
+            end
+            if treeSize ~= 1 then return end
             local treeId = child.Name:gsub("Tree_", "")
             attachCoinBubble(trunk :: BasePart, GameConfig.TREE_MARK_COST)
             register(trunk :: BasePart, GameConfig.TREE_MARK_COST, function(): boolean
@@ -260,7 +267,9 @@ local function watchForTrees()
             end)
         end)
     end
-    for _, child in workspace:GetChildren() do attach(child) end
+    for _, child in workspace:GetChildren() do
+        if child.Name:sub(1, 5) == "Tree_" and child:IsA("Model") then attach(child) end
+    end
     workspace.ChildAdded:Connect(attach)
 end
 
@@ -332,12 +341,79 @@ local function watchForBoat()
     if existing and existing:IsA("BasePart") then attach(existing) end
 end
 
+local function watchForStructureFoundations()
+    local function attach(child)
+        if not child:IsA("BasePart") then return end
+        if child:GetAttribute("Level") ~= 0 then return end
+        local n = child.Name
+        if not (n:sub(1, 16) == "Tower_Foundation" or n:sub(1, 20) == "Barricade_Foundation") then return end
+        local part     = child :: BasePart
+        local required = part:GetAttribute("BuildRequired") or GameConfig.STRUCTURE_BUILD_DURATION
+        local initial  = required - (part:GetAttribute("BuildProgress") or 0)
+        attachCoinBubble(part, initial, GameConfig.STRUCTURE_INTERACT_RADIUS)
+        register(part, 1, function(): boolean
+            return Remotes.BuildStructure:InvokeServer()
+        end, function(): boolean
+            return part:GetAttribute("Level") == 0
+        end, GameConfig.STRUCTURE_INTERACT_RADIUS)
+        -- Keep bubble count in sync with build progress, remove when done
+        part.AttributeChanged:Connect(function(attr: string)
+            if attr ~= "BuildProgress" and attr ~= "Level" then return end
+            if part:GetAttribute("Level") ~= 0 then
+                for i, item in _interactives do
+                    if item.part == part then table.remove(_interactives, i) break end
+                end
+                local bb = part:FindFirstChild("CoinBubble")
+                if bb then bb:Destroy() end
+                return
+            end
+            local req  = part:GetAttribute("BuildRequired") or GameConfig.STRUCTURE_BUILD_DURATION
+            local prog = part:GetAttribute("BuildProgress") or 0
+            local label = getBubbleLabel(part)
+            if label and label.Parent then label.Text = tostring(req - prog) end
+        end)
+    end
+    for _, child in workspace:GetChildren() do attach(child) end
+    workspace.ChildAdded:Connect(attach)
+end
+
+local function watchForPortals()
+    local function attach(child)
+        if not (child.Name == "Portal" and child:IsA("BasePart")) then return end
+        local part = child :: BasePart
+        -- Show remaining HP in the bubble (colour it red to distinguish from coin costs)
+        local hp = part:GetAttribute("Health") or GameConfig.PORTAL_HEALTH
+        attachCoinBubble(part, hp, GameConfig.PORTAL_INTERACT_RADIUS)
+        local frame = getBubbleFrame(part)
+        if frame then frame.BackgroundColor3 = Color3.fromRGB(180, 30, 30) end
+        -- Keep bubble HP label in sync as players whittle the portal down
+        part.AttributeChanged:Connect(function(attr)
+            if attr ~= "Health" then return end
+            local label = getBubbleLabel(part)
+            if label and label.Parent then
+                label.Text = tostring(part:GetAttribute("Health") or 0)
+            end
+        end)
+        -- Register as zero-cost interactive (no coins spent, just an attack tap)
+        register(part, 0, function(): boolean
+            local remaining = Remotes.AttackPortal:InvokeServer()
+            return remaining >= 0
+        end, nil, GameConfig.PORTAL_INTERACT_RADIUS)
+    end
+    workspace.ChildAdded:Connect(attach)
+    for _, child in workspace:GetChildren() do
+        if child.Name == "Portal" and child:IsA("BasePart") then attach(child) end
+    end
+end
+
 watchForHammerShop()
 watchForBowShop()
 watchForTrees()
 watchForMayor()
 watchForFirePit()
 watchForBoat()
+watchForPortals()
+watchForStructureFoundations()
 
 local InputController = {}
 return InputController

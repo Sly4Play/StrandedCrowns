@@ -39,4 +39,6 @@ return {
     BankWithdraw    = get("RemoteFunction", "BankWithdraw"),     -- (amount: number) → bool
     UpgradeFirepit  = get("RemoteFunction", "UpgradeFirepit"),   -- () → bool
     MarkBoat        = get("RemoteFunction", "MarkBoat"),         -- () → bool
+    AttackPortal    = get("RemoteFunction", "AttackPortal"),     -- () → number (remaining HP, -1 = none in range)
+    BuildStructure  = get("RemoteFunction", "BuildStructure"),   -- () → bool (1 coin = 1 build tick on nearest foundation)
 }

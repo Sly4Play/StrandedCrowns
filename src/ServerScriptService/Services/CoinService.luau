@@ -55,7 +55,7 @@ local function makeCoinPart(pos: Vector3, amount: number, scatter: number?): Bas
     local s          = scatter or 2.0
     local p          = Instance.new("Part")
     p.Name           = "GroundCoin"
-    p.Size           = Vector3.new(0.5, 0.5, 0.5)
+    p.Size           = Vector3.new(1.5, 1.5, 1.5)
     p.Shape          = Enum.PartType.Ball
     p.BrickColor     = BrickColor.new("Bright yellow")
     p.Anchored       = true
