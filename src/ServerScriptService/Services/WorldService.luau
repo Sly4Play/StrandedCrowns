@@ -19,6 +19,10 @@ local _structuresSpawned = false
 local _boat: BasePart? = nil
 local _spawn: SpawnLocation? = nil
 
+-- Tool rack registry: shopPart → { toolType, tools[] }
+type RackEntry = { toolType: string, tools: {BasePart} }
+local _racks: {[BasePart]: RackEntry} = {}
+
 local WorldService = {}
 
 local function randXZ(rng: Random, minDist: number, maxDist: number, yHeight: number): Vector3
@@ -99,15 +103,45 @@ local function makeTree(id: string, pos: Vector3, treeSize: number): Model
     return model
 end
 
+-- ── Tool shop + rack ─────────────────────────────────────────────────────
+
+local function initRack(shopPart: BasePart, toolType: string)
+    _racks[shopPart] = { toolType = toolType, tools = {} }
+    shopPart:SetAttribute("RackCount", 0)
+    shopPart:SetAttribute("RackMax",   GameConfig.RACK_MAX_TOOLS)
+    -- Visual shelf on top of shop
+    local shelf       = Instance.new("Part")
+    shelf.Name        = "ToolRack"
+    shelf.Size        = Vector3.new(shopPart.Size.X - 0.2, 0.2, 1.4)
+    shelf.BrickColor  = BrickColor.new("Reddish brown")
+    shelf.Material    = Enum.Material.Wood
+    shelf.Anchored    = true
+    shelf.CanCollide  = false
+    shelf.Position    = shopPart.Position + Vector3.new(0, shopPart.Size.Y / 2 + 0.1, 0)
+    shelf.Parent      = workspace
+end
+
+local function makeShop(pos: Vector3, shopType: string, col: BrickColor, offset: Vector3): BasePart
+    local p       = Instance.new("Part")
+    p.Name        = shopType .. "Shop"
+    p.Size        = Vector3.new(4, 4, 4)
+    p.BrickColor  = col
+    p.Anchored    = true
+    p.Position    = pos + offset
+    p.Parent      = workspace
+    p:SetAttribute("ShopType", shopType)
+    return p
+end
+
 local function makeHammerShop(pos: Vector3): BasePart
-    local p      = Instance.new("Part")
-    p.Name       = "HammerShop"
-    p.Size       = Vector3.new(4, 4, 4)
-    p.BrickColor = BrickColor.new("Bright orange")
-    p.Anchored   = true
-    p.Position   = pos + Vector3.new(0, 2, 16)
-    p.Parent     = workspace
-    p:SetAttribute("ShopType", "Hammer")
+    local p = makeShop(pos, "Hammer", BrickColor.new("Bright orange"), Vector3.new(0, 2, 16))
+    initRack(p, "Hammer")
+    return p
+end
+
+local function makeBowShop(pos: Vector3): BasePart
+    local p = makeShop(pos, "Bow", BrickColor.new("Bright blue"), Vector3.new(16, 2, 0))
+    initRack(p, "Bow")
     return p
 end
 
@@ -422,7 +456,53 @@ function WorldService.spawnHammerShop()
     if _hammerShopSpawned then return end
     _hammerShopSpawned = true
     makeHammerShop(GameConfig.TOWN_CENTER_POS)
-    print("[WorldService] Hammer shop spawned")
+    makeBowShop(GameConfig.TOWN_CENTER_POS)
+    print("[WorldService] Hammer shop and Bow shop spawned")
+end
+
+-- ── Rack public API ───────────────────────────────────────────────────────
+
+function WorldService.addToolToRack(shopPart: BasePart): boolean
+    local rack = _racks[shopPart]
+    if not rack then return false end
+    if #rack.tools >= GameConfig.RACK_MAX_TOOLS then return false end
+    local idx    = #rack.tools          -- 0-based slot index
+    local slotX  = (idx - 1.5) * 0.95  -- 4 slots centred on shop
+    local shelfY = shopPart.Position.Y + shopPart.Size.Y / 2 + 0.3
+    local isBow  = rack.toolType == "Bow"
+    local tool        = Instance.new("Part")
+    tool.Name         = rack.toolType
+    tool.Size         = Vector3.new(0.4, 0.4, 1.2)
+    tool.BrickColor   = isBow and BrickColor.new("Brown") or BrickColor.new("Medium stone grey")
+    tool.Material     = isBow and Enum.Material.Wood or Enum.Material.Metal
+    tool.Anchored     = true
+    tool.CanCollide   = false
+    tool.Position     = Vector3.new(shopPart.Position.X + slotX, shelfY, shopPart.Position.Z)
+    tool:SetAttribute("ToolType", rack.toolType)
+    tool.Parent       = workspace
+    table.insert(rack.tools, tool)
+    shopPart:SetAttribute("RackCount", #rack.tools)
+    return true
+end
+
+function WorldService.takeToolFromRack(shopPart: BasePart): string?
+    local rack = _racks[shopPart]
+    if not rack or #rack.tools == 0 then return nil end
+    local tool = table.remove(rack.tools)
+    if tool.Parent then tool:Destroy() end
+    shopPart:SetAttribute("RackCount", #rack.tools)
+    return rack.toolType
+end
+
+-- Returns all shop parts that have at least one tool on the rack.
+function WorldService.getShopsWithTools(): {BasePart}
+    local list = {}
+    for shopPart, rack in _racks do
+        if shopPart.Parent and #rack.tools > 0 then
+            table.insert(list, shopPart)
+        end
+    end
+    return list
 end
 
 -- ── Food ─────────────────────────────────────────────────────────────────

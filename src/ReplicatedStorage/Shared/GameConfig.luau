@@ -25,7 +25,6 @@ return {
 
     -- Economy
     STARTER_COINS          = 10,
-    HAMMER_COST            = 3,
     TREE_MARK_COST         = 1,
     TREE_CHOP_REWARD       = 2,   -- coins paid to the builder who chops
     TREE_MARK_RETURN_MULT  = 2,   -- unused in Phase 1, kept for Phase 2
@@ -65,6 +64,14 @@ return {
     VAGRANT_COIN_SCAN_RADIUS  = 30,  -- how far homeless scan for player-dropped coins
     NPC_OVERFLOW_RADIUS       = 20,
     WORKER_COIN_PICKUP_DELAY  = 2,   -- seconds workers wait before collecting nearby ground coins
+
+    -- Tool shops / racks
+    RACK_MAX_TOOLS  = 4,    -- max tools on any shop rack at once
+    HAMMER_COST     = 3,
+    BOW_COST        = 3,
+
+    -- Hunter
+    HUNTER_PURSE_MAX = 8,
 
     -- Structures
     STRUCTURE_BUILD_DURATION = 5,

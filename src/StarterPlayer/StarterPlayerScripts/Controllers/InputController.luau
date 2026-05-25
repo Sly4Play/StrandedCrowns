@@ -10,11 +10,11 @@ local BUY_RADIUS = 5
 
 -- ── Interactive registry ──────────────────────────────────────────────────
 
-type Interactive = { part: BasePart, cost: number, action: () -> boolean }
+type Interactive = { part: BasePart, cost: number, action: () -> boolean, condition: (() -> boolean)? }
 local _interactives: {Interactive} = {}
 
-local function register(part: BasePart, cost: number, action: () -> boolean)
-    table.insert(_interactives, { part = part, cost = cost, action = action })
+local function register(part: BasePart, cost: number, action: () -> boolean, condition: (() -> boolean)?)
+    table.insert(_interactives, { part = part, cost = cost, action = action, condition = condition })
 end
 
 -- ── Coin bubble ───────────────────────────────────────────────────────────
@@ -70,6 +70,7 @@ local function findNearest(): (Interactive?, Vector3)
     local bestDist = BUY_RADIUS
     for _, item in _interactives do
         if not item.part.Parent then continue end
+        if item.condition and not item.condition() then continue end
         local d = (item.part.Position - pos).Magnitude
         if d < bestDist then
             bestDist = d
@@ -191,18 +192,42 @@ end)
 
 -- ── Watchers ──────────────────────────────────────────────────────────────
 
-local function watchForHammerShop()
+local function watchForShop(shopName: string, cost: number, buyFn: () -> boolean)
     local function attach(child)
-        if not (child.Name == "HammerShop" and child:IsA("BasePart")) then return end
+        if not (child.Name == shopName and child:IsA("BasePart")) then return end
         local part = child :: BasePart
-        attachCoinBubble(part, GameConfig.HAMMER_COST, 20)
-        register(part, GameConfig.HAMMER_COST, function(): boolean
-            return Remotes.BuyTool:InvokeServer()
+        attachCoinBubble(part, cost, 20)
+        register(part, cost,
+            buyFn,
+            function(): boolean
+                -- Rack not full (checked client-side via replicated attribute)
+                return (part:GetAttribute("RackCount") or 0) < GameConfig.RACK_MAX_TOOLS
+            end
+        )
+        -- Update bubble label when rack count changes
+        part.AttributeChanged:Connect(function(attr: string)
+            if attr ~= "RackCount" then return end
+            local count = part:GetAttribute("RackCount") or 0
+            local label = getBubbleLabel(part)
+            if not label or not label.Parent then return end
+            label.Text = count >= GameConfig.RACK_MAX_TOOLS and "FULL" or tostring(cost)
         end)
     end
     workspace.ChildAdded:Connect(attach)
-    local existing = workspace:FindFirstChild("HammerShop")
+    local existing = workspace:FindFirstChild(shopName)
     if existing and existing:IsA("BasePart") then attach(existing) end
+end
+
+local function watchForHammerShop()
+    watchForShop("HammerShop", GameConfig.HAMMER_COST, function(): boolean
+        return Remotes.BuyTool:InvokeServer()
+    end)
+end
+
+local function watchForBowShop()
+    watchForShop("BowShop", GameConfig.BOW_COST, function(): boolean
+        return Remotes.BuyBow:InvokeServer()
+    end)
 end
 
 local function watchForTrees()
@@ -293,6 +318,7 @@ local function watchForBoat()
 end
 
 watchForHammerShop()
+watchForBowShop()
 watchForTrees()
 watchForMayor()
 watchForFirePit()

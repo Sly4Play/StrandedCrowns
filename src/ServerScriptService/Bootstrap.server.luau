@@ -60,24 +60,34 @@ local function scatterCoinsOnFail(player: Player, attempted: number)
 end
 
 Remotes.BuyTool.OnServerInvoke = function(player: Player): boolean
-    local hammerShop = workspace:FindFirstChild("HammerShop")
-    if not hammerShop then return false end
+    local shopPart = workspace:FindFirstChild("HammerShop")
+    if not shopPart or not shopPart:IsA("BasePart") then return false end
+    if (shopPart:GetAttribute("RackCount") or 0) >= GameConfig.RACK_MAX_TOOLS then return false end
     if not CoinService.spend(player.UserId, GameConfig.HAMMER_COST) then
         scatterCoinsOnFail(player, GameConfig.HAMMER_COST)
         return false
     end
-    local shopPart = hammerShop :: BasePart
-    local toolPart = Instance.new("Part")
-    toolPart.Name        = "Hammer"
-    toolPart.Size        = Vector3.new(1, 1, 3)
-    toolPart.BrickColor  = BrickColor.new("Medium stone grey")
-    toolPart.Anchored    = true
-    toolPart.CanCollide  = false
-    toolPart.Position    = Vector3.new(shopPart.Position.X, 0.5, shopPart.Position.Z + 3)
-    toolPart.Parent      = workspace
-    toolPart:SetAttribute("ToolType", "Hammer")
-    WorldService.registerGroundTool(toolPart, toolPart.Position)
-    print("[Bootstrap] Hammer purchased by", player.Name)
+    if not WorldService.addToolToRack(shopPart :: BasePart) then
+        CoinService.award(player.UserId, GameConfig.HAMMER_COST)
+        return false
+    end
+    print("[Bootstrap] Hammer added to rack by", player.Name)
+    return true
+end
+
+Remotes.BuyBow.OnServerInvoke = function(player: Player): boolean
+    local shopPart = workspace:FindFirstChild("BowShop")
+    if not shopPart or not shopPart:IsA("BasePart") then return false end
+    if (shopPart:GetAttribute("RackCount") or 0) >= GameConfig.RACK_MAX_TOOLS then return false end
+    if not CoinService.spend(player.UserId, GameConfig.BOW_COST) then
+        scatterCoinsOnFail(player, GameConfig.BOW_COST)
+        return false
+    end
+    if not WorldService.addToolToRack(shopPart :: BasePart) then
+        CoinService.award(player.UserId, GameConfig.BOW_COST)
+        return false
+    end
+    print("[Bootstrap] Bow added to rack by", player.Name)
     return true
 end
 

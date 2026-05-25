@@ -32,7 +32,8 @@ return {
     -- Client → Server
     DropCoins    = get("RemoteEvent",    "DropCoins"),     -- (amount: number)
     DropFood     = get("RemoteEvent",    "DropFood"),      -- () spawns food at player pos
-    BuyTool         = get("RemoteFunction", "BuyTool"),          -- () → bool
+    BuyTool         = get("RemoteFunction", "BuyTool"),          -- () → bool (add hammer to rack)
+    BuyBow          = get("RemoteFunction", "BuyBow"),           -- () → bool (add bow to rack)
     MarkTree        = get("RemoteFunction", "MarkTree"),         -- (treeId: string) → bool
     BankWithdraw    = get("RemoteFunction", "BankWithdraw"),     -- (amount: number) → bool
     UpgradeFirepit  = get("RemoteFunction", "UpgradeFirepit"),   -- () → bool

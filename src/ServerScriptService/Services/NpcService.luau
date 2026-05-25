@@ -21,6 +21,13 @@ local _campCounts: {[number]: number} = {}
 local COLOR_HOMELESS = BrickColor.new("Medium stone grey")
 local COLOR_JOBLESS  = BrickColor.new("Bright yellow")
 local COLOR_WORKER   = BrickColor.new("Reddish brown")
+local COLOR_HUNTER   = BrickColor.new("Bright green")
+
+-- Maps rack tool type → profession name
+local TOOL_TO_PROFESSION: {[string]: string} = {
+    Hammer = "Builder",
+    Bow    = "Hunter",
+}
 
 -- ── helpers ──────────────────────────────────────────────────────────────
 
@@ -446,48 +453,114 @@ local function startWorkerLoop(npc: NpcData)
     end)
 end
 
-local function fetchTool(npc: NpcData)
-    local town = WorldService.getTownCenterPos()
-    local all  = WorldService.getGroundTools()
-
-    local tools = {}
-    for _, t in all do
-        if (t.instance.Position - town).Magnitude <= GameConfig.TOWN_RADIUS then
-            table.insert(tools, t)
-        end
-    end
-    if #tools == 0 then return end  -- poll loop continues (state stays IdleAtTown)
-
-    local myPos   = getNpcPosition(npc)
-    local nearest = tools[1]
-    for _, t in tools do
-        if (t.instance.Position - myPos).Magnitude < (nearest.instance.Position - myPos).Magnitude then
-            nearest = t
-        end
-    end
-
-    npc.state = "FetchingTool"
-    setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
-    moveNpcTo(npc, nearest.instance.Position)
+-- Placeholder loop until Phase 2 Item 4 (full animal hunting behavior).
+-- Hunter wanders the outer island ring and returns to walls at dusk.
+local function startHunterLoop(npc: NpcData)
+    npc.profession = "Hunter"
+    npc.maxPurse   = GameConfig.HUNTER_PURSE_MAX
+    npc.state      = "Working"
+    setNpcColor(npc, COLOR_HUNTER)
     task.spawn(function()
-        for _ = 1, 30 do   -- 15 seconds at 0.5s ticks
-            task.wait(0.5)
-            if npc.state ~= "FetchingTool" then return end
-            if not nearest.instance.Parent then
-                NpcService.assignTool(npc)   -- restart poll loop
-                return
-            end
-            if (getNpcPosition(npc) - nearest.instance.Position).Magnitude < 3 then
-                WorldService.removeGroundTool(nearest.instance)
-                nearest.instance:Destroy()
-                npc.state = "Working"
-                startWorkerLoop(npc)
-                print("[NpcService] Jobless picked up tool, became Worker")
-                return
-            end
+        while npc.instance.Parent do
+            task.wait(2)
+            if not npc.instance.Parent then break end
+            if npc.state ~= "Working" then continue end
+            local town  = WorldService.getTownCenterPos()
+            local r     = GameConfig.TOWN_RADIUS
+            local angle = math.random() * 2 * math.pi
+            local dist  = r * (0.5 + math.random() * 0.5)
+            setNpcSpeed(npc, GameConfig.NPC_WANDER_SPEED)
+            moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
         end
-        NpcService.assignTool(npc)   -- timeout — restart poll loop
     end)
+end
+
+local function fetchTool(npc: NpcData)
+    local myPos = getNpcPosition(npc)
+    local town  = WorldService.getTownCenterPos()
+
+    -- Priority 1: shop racks (player-stocked tools)
+    local racks = WorldService.getShopsWithTools()
+
+    -- Priority 2: dropped tools on the ground within town (from worker-hit mechanic)
+    local groundTools = {}
+    for _, t in WorldService.getGroundTools() do
+        if (t.instance.Position - town).Magnitude <= GameConfig.TOWN_RADIUS then
+            table.insert(groundTools, t)
+        end
+    end
+
+    if #racks == 0 and #groundTools == 0 then return end
+
+    -- Find nearest rack
+    local nearestRack: BasePart? = nil
+    local nearestRackDist = math.huge
+    for _, r in racks do
+        local d = (r.Position - myPos).Magnitude
+        if d < nearestRackDist then nearestRackDist = d; nearestRack = r end
+    end
+
+    -- Find nearest ground tool
+    local nearestGround: { instance: BasePart, position: Vector3 }? = nil
+    local nearestGroundDist = math.huge
+    for _, t in groundTools do
+        local d = (t.instance.Position - myPos).Magnitude
+        if d < nearestGroundDist then nearestGroundDist = d; nearestGround = t end
+    end
+
+    -- Prefer rack (player-controlled supply); fall back to dropped ground tool
+    if nearestRack and (nearestGround == nil or nearestRackDist <= nearestGroundDist) then
+        npc.state = "FetchingTool"
+        setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
+        local inward = (town - nearestRack.Position).Unit
+        moveNpcTo(npc, nearestRack.Position + inward * 3)
+        task.spawn(function()
+            for _ = 1, 30 do
+                task.wait(0.5)
+                if npc.state ~= "FetchingTool" then return end
+                if not nearestRack.Parent then NpcService.assignTool(npc) return end
+                if (getNpcPosition(npc) - nearestRack.Position).Magnitude < 5 then
+                    local toolType = WorldService.takeToolFromRack(nearestRack)
+                    if not toolType then
+                        -- Another NPC claimed it first; re-poll
+                        NpcService.assignTool(npc)
+                        return
+                    end
+                    local profession = TOOL_TO_PROFESSION[toolType] or "Builder"
+                    if profession == "Hunter" then
+                        startHunterLoop(npc)
+                    else
+                        startWorkerLoop(npc)
+                    end
+                    print("[NpcService] Jobless picked up", toolType, "→", profession)
+                    return
+                end
+            end
+            NpcService.assignTool(npc)
+        end)
+
+    elseif nearestGround then
+        -- Dropped tool (from hit worker) — always makes a Builder
+        npc.state = "FetchingTool"
+        setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
+        moveNpcTo(npc, nearestGround.instance.Position)
+        task.spawn(function()
+            for _ = 1, 30 do
+                task.wait(0.5)
+                if npc.state ~= "FetchingTool" then return end
+                if not nearestGround.instance.Parent then NpcService.assignTool(npc) return end
+                if (getNpcPosition(npc) - nearestGround.instance.Position).Magnitude < 3 then
+                    WorldService.removeGroundTool(nearestGround.instance)
+                    nearestGround.instance:Destroy()
+                    npc.state = "Working"
+                    startWorkerLoop(npc)
+                    print("[NpcService] Jobless picked up dropped tool, became Builder")
+                    return
+                end
+            end
+            NpcService.assignTool(npc)
+        end)
+    end
 end
 
 function NpcService.assignTool(npc: NpcData)
@@ -517,15 +590,17 @@ function NpcService.assignTool(npc: NpcData)
                 moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
             end
 
-            -- Check for tools inside town
-            local inTown = false
-            for _, t in WorldService.getGroundTools() do
-                if (t.instance.Position - town).Magnitude <= GameConfig.TOWN_RADIUS then
-                    inTown = true
-                    break
+            -- Check for tools: shop racks (primary) or dropped ground tools (secondary)
+            local hasTools = #WorldService.getShopsWithTools() > 0
+            if not hasTools then
+                for _, t in WorldService.getGroundTools() do
+                    if (t.instance.Position - town).Magnitude <= GameConfig.TOWN_RADIUS then
+                        hasTools = true
+                        break
+                    end
                 end
             end
-            if inTown then
+            if hasTools then
                 fetchTool(npc)
                 if npc.state == "FetchingTool" then break end
             end
@@ -626,9 +701,9 @@ end)
 
 TimeService.onDawn(function(_day)
     for _, npc in _npcs do
-        if npc.profession == "Builder" then
+        if npc.profession == "Builder" or npc.profession == "Hunter" then
             npc.state = "Working"
-            print("[NpcService] Worker ready on day", _day)
+            print("[NpcService]", npc.profession, "ready on day", _day)
         end
     end
 end)
