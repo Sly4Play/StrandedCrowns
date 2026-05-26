@@ -45,28 +45,30 @@ local _island2Unlocked = false
 local WorldService = require(Services.WorldService)
 WorldService.buildIsland(GameConfig.DEV_MODE and 5 or 1)
 
-local MayorService = require(Services.MayorService)
-
--- When builders finish the mayor house, sync MayorService internal state
-WorldService.onMayorHouseBuilt(function()
-    MayorService.buildTent(GameConfig.TOWN_CENTER_POS)
-end)
-
 local Remotes = require(game:GetService("ReplicatedStorage").Shared.Remotes)
-if not GameConfig.DEV_MODE then
+
+-- MayorService only loaded in normal play; nil in dev mode so handlers degrade gracefully
+local MayorService = (not GameConfig.DEV_MODE) and require(Services.MayorService) or nil
+
+if GameConfig.DEV_MODE then
+    -- Static Island 5 showcase — no mayor, no NPCs, no animals, no greed
+    local ok, err = pcall(WorldService.spawnDevTown)
+    if not ok then
+        warn("[Bootstrap] spawnDevTown FAILED:", err)
+    else
+        _firepitLevel = 6
+        task.defer(function()
+            Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nil)
+        end)
+        print("[Bootstrap] DEV_MODE — Island 5 endgame town loaded")
+    end
+else
+    WorldService.onMayorHouseBuilt(function()
+        MayorService.buildTent(GameConfig.TOWN_CENTER_POS)
+    end)
     require(Services.AnimalService)
     require(Services.NpcService)
     require(Services.GreedService)
-end
-
-if GameConfig.DEV_MODE then
-    WorldService.spawnDevTown()
-    _firepitLevel = 6
-    -- Fire visual spawned directly in spawnDevTown at full size; just sync HUD
-    task.defer(function()
-        Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nil)
-    end)
-    print("[Bootstrap] DEV_MODE — Island 5 endgame town loaded")
 end
 
 Remotes.DropCoins.OnServerEvent:Connect(function(player: Player, amount: number)
@@ -75,9 +77,8 @@ Remotes.DropCoins.OnServerEvent:Connect(function(player: Player, amount: number)
         local pos  = char and char.PrimaryPart and char.PrimaryPart.Position
         if pos then
             -- Try mayor deposit first (if near mayor)
-            local MayorSvc = require(Services.MayorService)
-            if MayorSvc.isBankOpen() and (pos - MayorSvc.getPosition()).Magnitude < GameConfig.MAYOR_DEPOSIT_RADIUS then
-                MayorSvc.deposit(player.UserId, amount)
+            if MayorService and MayorService.isBankOpen() and (pos - MayorService.getPosition()).Magnitude < GameConfig.MAYOR_DEPOSIT_RADIUS then
+                MayorService.deposit(player.UserId, amount)
             else
                 if CoinService.spend(player.UserId, amount) then
                     CoinService.spawnGroundCoins(pos, amount, player.UserId)
@@ -86,8 +87,6 @@ Remotes.DropCoins.OnServerEvent:Connect(function(player: Player, amount: number)
         end
     end
 end)
-
-local GreedService = require(Services.GreedService)
 
 Remotes.DropFood.OnServerEvent:Connect(function(player: Player)
     local char = player.Character
@@ -156,6 +155,7 @@ Remotes.MarkTree.OnServerInvoke = function(player: Player, treeId: string): bool
 end
 
 Remotes.BankWithdraw.OnServerInvoke = function(player: Player, amount: number): boolean
+    if not MayorService then return false end
     return MayorService.withdraw(player.UserId, amount)
 end
 
