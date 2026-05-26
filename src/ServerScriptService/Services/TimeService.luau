@@ -45,6 +45,12 @@ local function advanceTo(phase: string)
 end
 
 task.defer(function()
+    if GameConfig.DEV_MODE then
+        _phase     = "Day"
+        _dayNumber = 1
+        broadcast()
+        return  -- frozen at day; no phase callbacks fire
+    end
     _dayNumber += 1                  -- day 1 starts here, same path as all future Dawns
     broadcast()
     _events.Dawn:Fire(_dayNumber)   -- fire Dawn for day 1

@@ -326,15 +326,18 @@ function WorldService.buildIsland(islandIdx: number?)
     makeTownBoundary(center, GameConfig.TOWN_RADIUS)
     makeIslandBoundary(center, radius)
 
-    -- Portals sit at the island edge on the N/S axis, matching the per-island radius
-    local portalNorthPos = center + Vector3.new(0, 0, -radius)
-    local portalSouthPos = center + Vector3.new(0, 0,  radius)
-    local pn = makePortal(portalNorthPos)
-    local ps = makePortal(portalSouthPos)
-    table.insert(_portals, pn)
-    table.insert(_portals, ps)
-
-    local portalPositions = {portalNorthPos, portalSouthPos}
+    -- In dev mode portals are placed by spawnDevTown() — skip here
+    local portalPositions: {Vector3} = {}
+    if not GameConfig.DEV_MODE then
+        local portalNorthPos = center + Vector3.new(0, 0, -radius)
+        local portalSouthPos = center + Vector3.new(0, 0,  radius)
+        local pn = makePortal(portalNorthPos)
+        local ps = makePortal(portalSouthPos)
+        table.insert(_portals, pn)
+        table.insert(_portals, ps)
+        table.insert(portalPositions, portalNorthPos)
+        table.insert(portalPositions, portalSouthPos)
+    end
 
     local forbidden = {
         GameConfig.PORTAL_NORTH_POS,
@@ -357,94 +360,99 @@ function WorldService.buildIsland(islandIdx: number?)
         -- Shop positions must match makeHammerShop/makeBowShop offsets
         table.insert(structureSpots, center + Vector3.new(-24, 0,  24))  -- HammerShop SW
         table.insert(structureSpots, center + Vector3.new( 24, 0, -24))  -- BowShop    NE
+        -- Future/dev shops and town hall
+        table.insert(structureSpots, center + Vector3.new( 24, 0,  24))  -- FarmerShop SE
+        table.insert(structureSpots, center + Vector3.new(-24, 0, -24))  -- UpgradeShop NW
+        table.insert(structureSpots, center + Vector3.new(  0, 0,  36))  -- BombShop S
+        table.insert(structureSpots, center + Vector3.new(  0, 0, -22))  -- TownHall N
     end
 
-    -- Generate random marker positions now (before trees) so trees won't overlap them.
-    -- The function appends to structureSpots and also creates the marker parts.
-    WorldService.spawnRandomStructureMarkers(center, radius, rng, structureSpots, portalPositions)
+    if not GameConfig.DEV_MODE then
+        -- Random markers, trees, camps, mounds only in normal play
+        WorldService.spawnRandomStructureMarkers(center, radius, rng, structureSpots, portalPositions)
 
-    local placedTrees: {{pos: Vector3, size: number}} = {}
-
-    for i = 1, treeCount do
-        local treeSize = pickTreeSize(rng, iIdx)
-        local pos
-        local placed = false
-        local attempts = 0
-        repeat
-            pos = randXZ(rng, 20, radius, 0)
-            attempts += 1
-            if not tooClose(pos, {center}, GameConfig.TREE_MIN_DIST_TOWN)
-                and not tooClose(pos, portalPositions, GameConfig.TREE_MIN_DIST_PORTAL)
-                and not tooClose(pos, structureSpots, 8)
-                and not tooCloseToTrees(pos, placedTrees, treeSize) then
-                placed = true
-                break
+        local placedTrees: {{pos: Vector3, size: number}} = {}
+        for i = 1, treeCount do
+            local treeSize = pickTreeSize(rng, iIdx)
+            local pos
+            local placed = false
+            local attempts = 0
+            repeat
+                pos = randXZ(rng, 20, radius, 0)
+                attempts += 1
+                if not tooClose(pos, {center}, GameConfig.TREE_MIN_DIST_TOWN)
+                    and not tooClose(pos, portalPositions, GameConfig.TREE_MIN_DIST_PORTAL)
+                    and not tooClose(pos, structureSpots, 8)
+                    and not tooCloseToTrees(pos, placedTrees, treeSize) then
+                    placed = true
+                    break
+                end
+            until attempts >= 80
+            if not placed then
+                warn("[WorldService] tree", i, "could not be placed — skipped")
+                continue
             end
-        until attempts >= 80
-        if not placed then
-            warn("[WorldService] tree", i, "could not be placed — skipped")
-            continue
+            table.insert(placedTrees, { pos = pos, size = treeSize })
+            local id    = tostring(i)
+            local model = makeTree(id, pos, treeSize)
+            _trees[id]  = {
+                id = id, instance = model, position = pos,
+                isMarked = false, markerId = nil, markCost = 0,
+                treeSize = treeSize,
+            }
         end
-        table.insert(placedTrees, { pos = pos, size = treeSize })
-        local id    = tostring(i)
-        local model = makeTree(id, pos, treeSize)
-        _trees[id]  = {
-            id = id, instance = model, position = pos,
-            isMarked = false, markerId = nil, markCost = 0,
-            treeSize = treeSize,
-        }
-    end
 
-    local campMinFromCenter = GameConfig.TOWN_RADIUS + GameConfig.CAMP_MIN_DIST_TOWN_EDGE
-
-    for i = 1, GameConfig.CAMP_COUNT do
-        local pos
-        local placed = false
-        local attempts = 0
-        repeat
-            pos = randXZ(rng, campMinFromCenter, radius * 0.9, 0)
-            attempts += 1
-            if not tooClose(pos, portalPositions, GameConfig.CAMP_MIN_DIST_PORTAL)
-                and not tooClose(pos, {boatPos}, GameConfig.BOAT_MIN_DIST_CAMP)
-                and not tooClose(pos, _campPositions, GameConfig.CAMP_MIN_DIST_CAMP) then
-                placed = true
-                break
+        local campMinFromCenter = GameConfig.TOWN_RADIUS + GameConfig.CAMP_MIN_DIST_TOWN_EDGE
+        for i = 1, GameConfig.CAMP_COUNT do
+            local pos
+            local placed = false
+            local attempts = 0
+            repeat
+                pos = randXZ(rng, campMinFromCenter, radius * 0.9, 0)
+                attempts += 1
+                if not tooClose(pos, portalPositions, GameConfig.CAMP_MIN_DIST_PORTAL)
+                    and not tooClose(pos, {boatPos}, GameConfig.BOAT_MIN_DIST_CAMP)
+                    and not tooClose(pos, _campPositions, GameConfig.CAMP_MIN_DIST_CAMP) then
+                    placed = true
+                    break
+                end
+            until attempts >= 50
+            if not placed then
+                warn("[WorldService] camp", i, "could not be placed — skipped")
+                continue
             end
-        until attempts >= 50
-        if not placed then
-            warn("[WorldService] camp", i, "could not be placed — skipped")
-            continue
+            table.insert(_campPositions, pos)
+            local marker      = Instance.new("Part")
+            marker.Name       = "Camp_" .. i
+            marker.Size       = Vector3.new(4, 0.5, 4)
+            marker.BrickColor = BrickColor.new("Sand green")
+            marker.Anchored   = true
+            marker.Position   = pos + Vector3.new(0, 0.25, 0)
+            marker.Parent     = workspace
         end
-        table.insert(_campPositions, pos)
-        local marker      = Instance.new("Part")
-        marker.Name       = "Camp_" .. i
-        marker.Size       = Vector3.new(4, 0.5, 4)
-        marker.BrickColor = BrickColor.new("Sand green")
-        marker.Anchored   = true
-        marker.Position   = pos + Vector3.new(0, 0.25, 0)
-        marker.Parent     = workspace
-    end
 
-    for _ = 1, GameConfig.MOUND_COUNT do
-        local pos
-        local placed = false
-        local attempts = 0
-        repeat
-            pos = randXZ(rng, 20, radius, 0)
-            attempts += 1
-            if not tooClose(pos, forbidden, GameConfig.MOUND_MIN_DIST_PORTAL) then
-                placed = true
-                break
+        for _ = 1, GameConfig.MOUND_COUNT do
+            local pos
+            local placed = false
+            local attempts = 0
+            repeat
+                pos = randXZ(rng, 20, radius, 0)
+                attempts += 1
+                if not tooClose(pos, forbidden, GameConfig.MOUND_MIN_DIST_PORTAL) then
+                    placed = true
+                    break
+                end
+            until attempts >= 50
+            if not placed then
+                warn("[WorldService] mound could not be placed — skipped")
+                continue
             end
-        until attempts >= 50
-        if not placed then
-            warn("[WorldService] mound could not be placed — skipped")
-            continue
+            makeMound(pos)
         end
-        makeMound(pos)
+
+        spawnBrokenBoat()
     end
 
-    spawnBrokenBoat()
     WorldService.spawnTownStructures()
 
     local treeCount = 0
@@ -1047,6 +1055,172 @@ function WorldService.getAvailableBuildJobs(): {BuildJob}
         end
     end
     return jobs
+end
+
+-- Second perimeter wall ring (town level 2 upgrade). Same gate openings as inner ring.
+function WorldService.spawnOuterPerimeterWalls()
+    local center = GameConfig.TOWN_CENTER_POS
+    local r      = GameConfig.TOWN_RADIUS + 14  -- 58 studs from center
+    local wallH  = 2
+    local wallT  = 1
+
+    local corners = {
+        { a = center + Vector3.new( r, 0,  8), b = center + Vector3.new( 8, 0,  r) },
+        { a = center + Vector3.new(-8, 0,  r), b = center + Vector3.new(-r, 0,  8) },
+        { a = center + Vector3.new(-r, 0, -8), b = center + Vector3.new(-8, 0, -r) },
+        { a = center + Vector3.new( 8, 0, -r), b = center + Vector3.new( r, 0, -8) },
+    }
+
+    for i, corner in corners do
+        local a   = corner.a
+        local b   = corner.b
+        local mid = (a + b) / 2 + Vector3.new(0, wallH / 2, 0)
+        local len = (b - a).Magnitude + 4
+
+        local wall = Instance.new("Part")
+        wall.Name           = "OuterPerimeterWall_" .. i
+        wall.Size           = Vector3.new(wallT, wallH, len)
+        wall.BrickColor     = BrickColor.new("Dark stone grey")
+        wall.Anchored       = true
+        wall.CanCollide     = true
+        wall.CollisionGroup = "Defense"
+        wall.CFrame         = CFrame.lookAt(mid, b + Vector3.new(0, wallH / 2, 0))
+        wall.Parent         = workspace
+    end
+    print("[WorldService] Outer perimeter walls spawned")
+end
+
+-- Spawns the fully-built Island 5 endgame town layout for dev feel-testing.
+-- Called by Bootstrap when GameConfig.DEV_MODE is true.
+function WorldService.spawnDevTown()
+    local center = GameConfig.TOWN_CENTER_POS
+
+    local function label(part: BasePart, text: string)
+        local bb             = Instance.new("BillboardGui")
+        bb.Size              = UDim2.new(0, 220, 0, 44)
+        bb.StudsOffset       = Vector3.new(0, part.Size.Y / 2 + 3, 0)
+        bb.AlwaysOnTop       = true
+        bb.Parent            = part
+        local lbl                    = Instance.new("TextLabel")
+        lbl.Size                     = UDim2.new(1, 0, 1, 0)
+        lbl.BackgroundTransparency   = 1
+        lbl.TextColor3               = Color3.new(1, 1, 1)
+        lbl.TextStrokeTransparency   = 0
+        lbl.TextStrokeColor3         = Color3.new(0, 0, 0)
+        lbl.TextScaled               = true
+        lbl.Font                     = Enum.Font.GothamBold
+        lbl.Text                     = text
+        lbl.Parent                   = bb
+    end
+
+    -- Both real tool shops
+    WorldService.spawnHammerShop()
+    local hammerShop = workspace:FindFirstChild("HammerShop")
+    local bowShop    = workspace:FindFirstChild("BowShop")
+    if hammerShop and hammerShop:IsA("BasePart") then label(hammerShop :: BasePart, "🔨 Hammer Shop") end
+    if bowShop    and bowShop:IsA("BasePart")    then label(bowShop    :: BasePart, "🏹 Bow Shop")    end
+
+    -- Placeholder shops
+    local function devShop(name: string, displayName: string, col: BrickColor, offset: Vector3)
+        local p = Instance.new("Part")
+        p.Name       = name .. "Shop"
+        p.Size       = Vector3.new(4, 4, 4)
+        p.BrickColor = col
+        p.Anchored   = true
+        p.CanCollide = true
+        p.Position   = center + offset
+        p:SetAttribute("ShopType", name)
+        p.Parent     = workspace
+        local shelf       = Instance.new("Part")
+        shelf.Name        = "ToolRack"
+        shelf.Size        = Vector3.new(3.8, 0.2, 1.4)
+        shelf.BrickColor  = BrickColor.new("Reddish brown")
+        shelf.Material    = Enum.Material.Wood
+        shelf.Anchored    = true
+        shelf.CanCollide  = false
+        shelf.Position    = center + offset + Vector3.new(0, 2.1, 0)
+        shelf.Parent      = workspace
+        label(p, displayName)
+        return p
+    end
+
+    devShop("Farmer",  "🌾 Farmer Shop",  BrickColor.new("Bright green"),    Vector3.new( 24, 2,  24))
+    devShop("Upgrade", "⬆ Upgrade Shop", BrickColor.new("Bright yellow"),   Vector3.new(-24, 2, -24))
+    devShop("Bomb",    "💣 Bomb Shop",    BrickColor.new("Dark stone grey"), Vector3.new(  0, 2,  36))
+
+    -- Town Hall
+    local hall      = Instance.new("Part")
+    hall.Name       = "TownHall"
+    hall.Size       = Vector3.new(14, 10, 14)
+    hall.BrickColor = BrickColor.new("Medium stone grey")
+    hall.Anchored   = true
+    hall.CanCollide = true
+    hall.Position   = center + Vector3.new(0, 5, -22)
+    hall.Parent     = workspace
+    label(hall, "🏛 Town Hall")
+
+    -- Build all 8 cardinal defense foundations instantly then label them
+    WorldService.unlockCardinalDefenses()
+    WorldService.autoCompleteTownStructures()
+    for _, child in workspace:GetChildren() do
+        if not child:IsA("BasePart") then continue end
+        local sType = child:GetAttribute("StructureType")
+        if sType == "Tower"     then label(child :: BasePart, "🗼 Tower")     end
+        if sType == "Barricade" then label(child :: BasePart, "🧱 Barricade") end
+    end
+
+    -- Mayor House — spawn foundation then complete it immediately
+    WorldService.spawnMayorHouseFoundation()
+    for _, child in workspace:GetChildren() do
+        if child:IsA("BasePart") and child:GetAttribute("StructureType") == "MayorHouse" then
+            WorldService.markStructureBuilt(child :: BasePart)
+            label(child :: BasePart, "🏠 Mayor House")
+            break
+        end
+    end
+
+    -- Outer wall ring
+    WorldService.spawnOuterPerimeterWalls()
+    for _, child in workspace:GetChildren() do
+        if child:IsA("BasePart") and child.Name:find("OuterPerimeterWall") then
+            label(child :: BasePart, "🔒 Outer Wall")
+        end
+    end
+
+    -- 8 portals evenly around Island 5 perimeter (every 45°)
+    local islandR = GameConfig.ISLAND_RADIUS_BY_ISLAND[5]
+    for i = 0, 7 do
+        local angle = i * (math.pi / 4)
+        local pos   = center + Vector3.new(math.cos(angle) * islandR, 0, math.sin(angle) * islandR)
+        local p     = makePortal(pos)
+        table.insert(_portals, p)
+        label(p, "👁 Portal " .. (i + 1))
+    end
+
+    -- Guardian (Big Breeder) placeholder
+    local guardian      = Instance.new("Part")
+    guardian.Name       = "BigBreeder"
+    guardian.Size       = Vector3.new(12, 20, 12)
+    guardian.BrickColor = BrickColor.new("Maroon")
+    guardian.Material   = Enum.Material.Neon
+    guardian.Anchored   = true
+    guardian.CanCollide = true
+    guardian.Position   = center + Vector3.new(0, 10, -420)
+    guardian.Parent     = workspace
+    label(guardian, "☠ Guardian")
+
+    -- Dungeon placeholder
+    local dungeon       = Instance.new("Part")
+    dungeon.Name        = "Dungeon"
+    dungeon.Size        = Vector3.new(40, 20, 40)
+    dungeon.BrickColor  = BrickColor.new("Dark stone grey")
+    dungeon.Anchored    = true
+    dungeon.CanCollide  = true
+    dungeon.Position    = center + Vector3.new(0, 10, -280)
+    dungeon.Parent      = workspace
+    label(dungeon, "🏰 Dungeon")
+
+    print("[WorldService] Dev town fully spawned")
 end
 
 return WorldService

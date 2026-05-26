@@ -39,10 +39,11 @@ local TimeService = require(Services.TimeService)
 
 local CoinService = require(Services.CoinService)
 
-local WorldService = require(Services.WorldService)
-WorldService.buildIsland(1)
+local _firepitLevel    = 0
+local _island2Unlocked = false
 
-require(Services.AnimalService)  -- seeds island animal population; NpcService lazy-loads it for hunting
+local WorldService = require(Services.WorldService)
+WorldService.buildIsland(GameConfig.DEV_MODE and 5 or 1)
 
 local MayorService = require(Services.MayorService)
 
@@ -51,8 +52,26 @@ WorldService.onMayorHouseBuilt(function()
     MayorService.buildTent(GameConfig.TOWN_CENTER_POS)
 end)
 
-local Remotes    = require(game:GetService("ReplicatedStorage").Shared.Remotes)
-local NpcService = require(Services.NpcService)
+local Remotes = require(game:GetService("ReplicatedStorage").Shared.Remotes)
+if not GameConfig.DEV_MODE then
+    require(Services.AnimalService)
+    require(Services.NpcService)
+    require(Services.GreedService)
+end
+
+if GameConfig.DEV_MODE then
+    WorldService.spawnDevTown()
+    _firepitLevel = 6
+    task.defer(function()
+        local firePit = workspace:FindFirstChild("FirePit") :: BasePart?
+        if firePit then
+            local fire = firePit:FindFirstChildOfClass("Fire")
+            if fire then fire.Size = 6 + _firepitLevel * 2 end
+        end
+        Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nil)
+    end)
+    print("[Bootstrap] DEV_MODE — Island 5 endgame town loaded")
+end
 
 Remotes.DropCoins.OnServerEvent:Connect(function(player: Player, amount: number)
     if amount and amount > 0 then
@@ -144,8 +163,7 @@ Remotes.BankWithdraw.OnServerInvoke = function(player: Player, amount: number): 
     return MayorService.withdraw(player.UserId, amount)
 end
 
-local _firepitLevel    = 0
-local _island2Unlocked = false  -- set true when Island 2 is unlocked (Phase 2)
+-- _firepitLevel and _island2Unlocked declared above buildIsland()
 
 Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
     local costs     = GameConfig.FIREPIT_UPGRADE_COSTS

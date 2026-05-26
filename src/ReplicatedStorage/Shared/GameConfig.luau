@@ -1,4 +1,7 @@
 return {
+    -- Set true to boot with a fully-built Island 5 endgame town for layout feel testing
+    DEV_MODE = true,
+
     -- Phase durations (seconds) — tune via playtesting
     DAWN_DURATION  = 30,
     DAY_DURATION   = 240,
