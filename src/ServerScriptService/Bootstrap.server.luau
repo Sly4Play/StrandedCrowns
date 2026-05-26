@@ -44,6 +44,11 @@ WorldService.buildIsland(1)
 
 local MayorService = require(Services.MayorService)
 
+-- When builders finish the mayor house, sync MayorService internal state
+WorldService.onMayorHouseBuilt(function()
+    MayorService.buildTent(GameConfig.TOWN_CENTER_POS)
+end)
+
 local Remotes    = require(game:GetService("ReplicatedStorage").Shared.Remotes)
 local NpcService = require(Services.NpcService)
 
@@ -161,7 +166,7 @@ Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
         WorldService.unlockCardinalDefenses()   -- 8g "pays for" all 8 cardinal defenses; builders complete them
     end
     if _firepitLevel == 2 then
-        MayorService.buildTent(GameConfig.TOWN_CENTER_POS)
+        WorldService.spawnMayorHouseFoundation()  -- builders will complete it; walls seal when done
     end
     local nextCost = costs[_firepitLevel + 1]
     Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nextCost)

@@ -59,6 +59,14 @@ local function spawnFirePit()
     fire.Parent     = workspace
     local flame     = Instance.new("Fire")
     flame.Parent    = fire
+
+    -- Illuminates the town at night; range covers TOWN_RADIUS + margin
+    local light          = Instance.new("PointLight")
+    light.Brightness     = 4
+    light.Range          = 80
+    light.Color          = Color3.fromRGB(255, 175, 80)
+    light.Shadows        = true
+    light.Parent         = fire
 end
 
 local function doFireLightSequence()

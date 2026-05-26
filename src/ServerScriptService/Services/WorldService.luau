@@ -1,6 +1,7 @@
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 
-local _fireLitEvent = Instance.new("BindableEvent")
+local _fireLitEvent        = Instance.new("BindableEvent")
+local _mayorHouseBuiltEvent = Instance.new("BindableEvent")
 
 type GroundTool = { instance: BasePart, position: Vector3 }
 local _groundTools: {GroundTool} = {}
@@ -897,11 +898,86 @@ function WorldService.markStructureBuilt(inst: BasePart)
         inst:SetAttribute("Health",    GameConfig.BARRICADE_HEALTH)
         inst:SetAttribute("MaxHealth", GameConfig.BARRICADE_HEALTH)
     elseif structType == "FarmingArea" then
-        -- Farm plots stay flat and walkable; just solidify the color
         inst.CanCollide = false
         inst.BrickColor = BrickColor.new("Sand green")
+    elseif structType == "MayorHouse" then
+        -- Flat 10×0.5×10 foundation expands to full 10×8×10 mayor house
+        inst.Size     = Vector3.new(10, 8, 10)
+        inst.Position = Vector3.new(inst.Position.X, 4, inst.Position.Z)
+        inst.BrickColor  = BrickColor.new("Medium stone grey")
+        inst.CanCollide  = true
+        -- Seal the town perimeter now that the mayor house is standing
+        WorldService.spawnPerimeterWalls()
+        _mayorHouseBuiltEvent:Fire()
     end
     print("[WorldService] Built:", inst.Name)
+end
+
+-- Spawn the 4 diagonal wall segments that close the town perimeter.
+-- Each segment connects a barricade endpoint to the adjacent cardinal's tower endpoint,
+-- forming a complete enclosure with only the 4 cardinal gate openings passable.
+function WorldService.spawnPerimeterWalls()
+    local center = GameConfig.TOWN_CENTER_POS
+    local r      = GameConfig.TOWN_RADIUS
+    local wallH  = 2   -- matches barricade height
+    local wallT  = 1   -- wall thickness
+
+    -- (barricade center of one cardinal) → (tower center of the next clockwise cardinal)
+    -- Tangent offsets: barricade at +8, tower at -8 from cardinal center
+    local corners = {
+        { a = center + Vector3.new( r, 0,  8), b = center + Vector3.new( 8, 0,  r) },  -- E→S
+        { a = center + Vector3.new(-8, 0,  r), b = center + Vector3.new(-r, 0,  8) },  -- S→W
+        { a = center + Vector3.new(-r, 0, -8), b = center + Vector3.new(-8, 0, -r) },  -- W→N
+        { a = center + Vector3.new( 8, 0, -r), b = center + Vector3.new( r, 0, -8) },  -- N→E
+    }
+
+    for i, corner in corners do
+        local a   = corner.a
+        local b   = corner.b
+        local mid = (a + b) / 2 + Vector3.new(0, wallH / 2, 0)
+        local len = (b - a).Magnitude + 4  -- +4 to overlap slightly into adjacent structures
+
+        local wall = Instance.new("Part")
+        wall.Name         = "PerimeterWall_" .. i
+        wall.Size         = Vector3.new(wallT, wallH, len)
+        wall.BrickColor   = BrickColor.new("Dark stone grey")
+        wall.Anchored     = true
+        wall.CanCollide   = true
+        wall.CollisionGroup = "Defense"
+        wall.CFrame       = CFrame.lookAt(mid, b + Vector3.new(0, wallH / 2, 0))
+        wall.Parent       = workspace
+    end
+    print("[WorldService] Town perimeter walls sealed")
+end
+
+-- Subscribe to mayor house completion (Bootstrap uses this to sync MayorService state)
+function WorldService.onMayorHouseBuilt(cb: () -> ()): RBXScriptConnection
+    return _mayorHouseBuiltEvent.Event:Connect(cb)
+end
+
+-- Spawn the mayor house foundation (BuildUnlocked=true so builders go immediately).
+-- Called by Bootstrap when fire upgrades to tier 2.
+function WorldService.spawnMayorHouseFoundation()
+    local center = GameConfig.TOWN_CENTER_POS
+    local pos    = center + Vector3.new(0, 0.25, -8)  -- just behind the firepit
+
+    local found = Instance.new("Part")
+    found.Name        = "MayorHouse_Foundation"
+    found.Size        = Vector3.new(10, 0.5, 10)
+    found.BrickColor  = BrickColor.new("Reddish brown")
+    found.Transparency = 0.4
+    found.Anchored    = true
+    found.CanCollide  = false
+    found.Position    = pos
+    found.Parent      = workspace
+    found:SetAttribute("StructureType",   "MayorHouse")
+    found:SetAttribute("Level",           0)
+    found:SetAttribute("BuildUnlocked",   true)   -- tier-2 cost already paid
+    found:SetAttribute("BuildProgress",   0)
+    found:SetAttribute("BuildRequired",   GameConfig.STRUCTURE_BUILD_DURATION)
+    found:SetAttribute("MaxBuilders",     2)
+    found:SetAttribute("CurrentBuilders", 0)
+    print("[WorldService] Mayor house foundation placed — builders will complete it")
 end
 
 function WorldService.onFireLit(cb: () -> ()): RBXScriptConnection
