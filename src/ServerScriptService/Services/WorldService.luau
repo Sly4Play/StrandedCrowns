@@ -886,8 +886,9 @@ function WorldService.markStructureBuilt(inst: BasePart)
         inst.CanCollide     = true
         inst.BrickColor     = BrickColor.new("Dark stone grey")
         inst.CollisionGroup = "Defense"
-        inst:SetAttribute("Health",    GameConfig.BARRICADE_HEALTH * 2)
-        inst:SetAttribute("MaxHealth", GameConfig.BARRICADE_HEALTH * 2)
+        inst:SetAttribute("Health",       GameConfig.BARRICADE_HEALTH * 2)
+        inst:SetAttribute("MaxHealth",    GameConfig.BARRICADE_HEALTH * 2)
+        inst:SetAttribute("MaxOccupants", 1)   -- one TowerArcher slot
     elseif structType == "Barricade" then
         -- Flat 6×0.5×2 marker expands to full 6×2×2 barricade/gate
         inst.Size     = Vector3.new(6, 2, 2)

@@ -42,6 +42,8 @@ local CoinService = require(Services.CoinService)
 local WorldService = require(Services.WorldService)
 WorldService.buildIsland(1)
 
+require(Services.AnimalService)  -- seeds island animal population; NpcService lazy-loads it for hunting
+
 local MayorService = require(Services.MayorService)
 
 -- When builders finish the mayor house, sync MayorService internal state

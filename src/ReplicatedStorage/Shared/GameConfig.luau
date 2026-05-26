@@ -74,8 +74,18 @@ return {
     HAMMER_COST     = 3,
     BOW_COST        = 2,
 
+    -- Animals
+    ANIMAL_COUNT               = 10,   -- target live population on island
+    ANIMAL_RESPAWN_DELAY       = 30,   -- seconds before a replacement spawns after a kill
+    ANIMAL_COIN_REWARD         = 2,    -- coins dropped at death site
+    ANIMAL_WANDER_SPEED        = 5,
+    ANIMAL_SPAWN_MIN_DIST_PORTAL = 20,  -- keep animals away from portals
+
     -- Hunter
-    HUNTER_PURSE_MAX = 8,
+    HUNTER_PURSE_MAX    = 8,
+    HUNTER_SHOOT_RANGE  = 30,   -- studs; hunter shoots from within this radius
+    HUNTER_SHOOT_DELAY  = 0.7,  -- seconds for arrow projectile travel
+    TOWER_OCCUPY_DIST   = 8,    -- studs: hunter enters tower and converts to TowerArcher
 
     -- Structures
     STRUCTURE_BUILD_DURATION = 5,

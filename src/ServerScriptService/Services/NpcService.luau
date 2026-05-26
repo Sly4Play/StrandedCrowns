@@ -3,7 +3,20 @@ local Remotes      = require(game:GetService("ReplicatedStorage").Shared.Remotes
 local CoinService  = require(script.Parent.CoinService)
 local WorldService = require(script.Parent.WorldService)
 local TimeService  = require(script.Parent.TimeService)
+local TweenService = game:GetService("TweenService")
 local Players      = game:GetService("Players")
+
+-- Lazy-loaded to avoid require ordering issues with AnimalService
+local _AnimalService: any = nil
+local function getAnimalService()
+    if not _AnimalService then
+        _AnimalService = require(script.Parent.AnimalService)
+    end
+    return _AnimalService
+end
+
+-- Tower occupancy registry: tower BasePart → occupying npc id
+local _towerSlots: {[BasePart]: string} = {}
 
 -- NPC registry: id → NpcData
 type NpcData = {
@@ -566,24 +579,211 @@ local function startWorkerLoop(npc: NpcData)
     end)
 end
 
--- Placeholder loop until Phase 2 Item 4 (full animal hunting behavior).
--- Hunter wanders the outer island ring and returns to walls at dusk.
+-- Returns the first built tower with an open occupant slot, or nil.
+local function findOpenTower(): BasePart?
+    for _, child in workspace:GetChildren() do
+        if not child:IsA("BasePart") then continue end
+        if child:GetAttribute("StructureType") ~= "Tower" then continue end
+        if (child:GetAttribute("Level") or 0) == 0 then continue end
+        if (child:GetAttribute("MaxOccupants") or 0) < 1 then continue end
+        if _towerSlots[child :: BasePart] then continue end
+        return child :: BasePart
+    end
+    return nil
+end
+
+-- Fires a brief arrow tween from fromPos to toPos (synchronous — waits for arrival).
+local function fireArrow(fromPos: Vector3, toPos: Vector3)
+    local dir  = toPos - fromPos
+    local dist = dir.Magnitude
+    if dist < 1 then return end
+    local mid = fromPos + dir * 0.5
+
+    local arrow = Instance.new("Part")
+    arrow.Name       = "Arrow"
+    arrow.Size       = Vector3.new(0.12, 0.12, math.clamp(dist * 0.35, 0.5, 2.5))
+    arrow.BrickColor = BrickColor.new("Reddish brown")
+    arrow.Material   = Enum.Material.Wood
+    arrow.Anchored   = true
+    arrow.CanCollide = false
+    arrow.CastShadow = false
+    arrow.CFrame     = CFrame.lookAt(fromPos, toPos) * CFrame.new(0, 0, -(dist * 0.5 - arrow.Size.Z * 0.5))
+    arrow.Parent     = workspace
+
+    local t = TweenService:Create(arrow,
+        TweenInfo.new(GameConfig.HUNTER_SHOOT_DELAY, Enum.EasingStyle.Linear),
+        { CFrame = CFrame.lookAt(mid + dir * 0.5, fromPos) * CFrame.new(0, 0, arrow.Size.Z * 0.5) })
+    t:Play()
+    t.Completed:Wait()
+    arrow:Destroy()
+end
+
 local function startHunterLoop(npc: NpcData)
     npc.profession = "Hunter"
     npc.maxPurse   = GameConfig.HUNTER_PURSE_MAX
     npc.state      = "Working"
     setNpcColor(npc, COLOR_HUNTER)
+
+    -- Generation counter prevents stale loops after dusk/dawn or re-assign
+    local data = npc :: any
+    local gen  = (data._hunterGen or 0) + 1
+    data._hunterGen = gen
+
     task.spawn(function()
-        while npc.instance.Parent do
-            task.wait(2)
+        local occupiedTower: BasePart? = nil   -- tower this hunter currently occupies
+        local lastArcherShot = 0
+
+        while npc.instance.Parent and (npc :: any)._hunterGen == gen do
+            task.wait(1)
             if not npc.instance.Parent then break end
+            local state = npc.state
+
+            -- ── TowerArcher branch ────────────────────────────────────────
+            if state == "TowerArcher" then
+                if not occupiedTower or not occupiedTower.Parent then
+                    if occupiedTower then _towerSlots[occupiedTower] = nil end
+                    occupiedTower = nil
+                    npc.state     = "Working"
+                    continue
+                end
+                -- Shoot nearest animal in range, ~2s cadence
+                if tick() - lastArcherShot >= 2 then
+                    local towerPos  = occupiedTower.Position + Vector3.new(0, 2, 0)
+                    local AnimalSvc = getAnimalService()
+                    local nearest: any = nil
+                    local nearestDist  = GameConfig.HUNTER_SHOOT_RANGE
+                    for _, a in AnimalSvc.getAnimals() do
+                        local d = (a.position - towerPos).Magnitude
+                        if d < nearestDist then nearestDist = d; nearest = a end
+                    end
+                    if nearest then
+                        local root = nearest.instance.PrimaryPart
+                        if root then
+                            lastArcherShot = tick()
+                            task.spawn(function()
+                                fireArrow(towerPos, root.Position + Vector3.new(0, 0.75, 0))
+                                AnimalSvc.killAnimal(nearest.id)
+                            end)
+                        end
+                    end
+                end
+                collectNearbyCoins(npc)
+                continue
+            end
+
+            if state ~= "Working" then continue end
+
+            local myPos = getNpcPosition(npc)
+
+            -- ── Priority 1: fill an open built tower ──────────────────────
+            local openTower = findOpenTower()
+            if openTower then
+                local d = (openTower.Position - myPos).Magnitude
+                if d <= GameConfig.TOWER_OCCUPY_DIST then
+                    -- Claim slot (guard against two hunters racing)
+                    if not _towerSlots[openTower] then
+                        _towerSlots[openTower] = npc.id
+                        occupiedTower          = openTower
+                        npc.state              = "TowerArcher"
+                        setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
+                        moveNpcTo(npc, openTower.Position)
+                        print("[NpcService] Hunter entered tower →", openTower.Name)
+                    end
+                else
+                    setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
+                    moveNpcTo(npc, openTower.Position)
+                end
+                continue
+            end
+
+            -- ── Priority 2: hunt animals ──────────────────────────────────
+            local AnimalSvc = getAnimalService()
+            local animals   = AnimalSvc.getAnimals()
+
+            if #animals == 0 then
+                -- Nothing to hunt: patrol outer ring
+                setNpcSpeed(npc, GameConfig.NPC_WANDER_SPEED)
+                local town  = WorldService.getTownCenterPos()
+                local r     = GameConfig.ISLAND_RADIUS_BY_ISLAND[1] * 0.45
+                local angle = math.random() * 2 * math.pi
+                moveNpcTo(npc, town + Vector3.new(math.cos(angle) * r, 0, math.sin(angle) * r))
+                task.wait(3)
+                continue
+            end
+
+            -- Find nearest animal
+            local nearest: any = nil
+            local nearestDist  = math.huge
+            for _, a in animals do
+                local d = (a.position - myPos).Magnitude
+                if d < nearestDist then nearestDist = d; nearest = a end
+            end
+            if not nearest then continue end
+
+            -- Chase until in shoot range
+            if nearestDist > GameConfig.HUNTER_SHOOT_RANGE then
+                setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
+                local dir     = (nearest.position - myPos)
+                local stopPos = nearest.position - (dir.Magnitude > 0.1 and dir.Unit * (GameConfig.HUNTER_SHOOT_RANGE * 0.7) or Vector3.zero)
+                moveNpcTo(npc, stopPos)
+
+                local deadline = tick() + nearestDist / GameConfig.NPC_RUN_SPEED + 4
+                local lastPos  = getNpcPosition(npc)
+                local inRange  = false
+                while tick() < deadline and npc.state == "Working" do
+                    task.wait(0.5)
+                    -- Confirm animal still alive
+                    local alive = false
+                    for _, a in AnimalSvc.getAnimals() do
+                        if a.id == nearest.id then alive = true break end
+                    end
+                    if not alive then break end
+                    local curPos    = getNpcPosition(npc)
+                    local root      = nearest.instance.PrimaryPart
+                    local animalPos = root and root.Position or nearest.position
+                    if (curPos - animalPos).Magnitude <= GameConfig.HUNTER_SHOOT_RANGE then
+                        inRange = true; break
+                    end
+                    if (curPos - lastPos).Magnitude < 0.8 then
+                        nudgeAroundObstacle(npc, animalPos)
+                    else
+                        local d2 = animalPos - curPos
+                        if d2.Magnitude > 0.1 then
+                            moveNpcTo(npc, animalPos - d2.Unit * (GameConfig.HUNTER_SHOOT_RANGE * 0.7))
+                        end
+                    end
+                    lastPos = curPos
+                end
+                if not inRange or npc.state ~= "Working" then continue end
+            end
+
+            -- Confirm still in range and alive before shooting
+            local animalRoot = nearest.instance and nearest.instance.PrimaryPart
+            if not animalRoot or not nearest.instance.Parent then continue end
+            if (animalRoot.Position - getNpcPosition(npc)).Magnitude > GameConfig.HUNTER_SHOOT_RANGE then continue end
+
+            -- Fire arrow (synchronous wait for projectile)
+            fireArrow(getNpcPosition(npc) + Vector3.new(0, 1.5, 0),
+                      animalRoot.Position  + Vector3.new(0, 0.75, 0))
             if npc.state ~= "Working" then continue end
-            local town  = WorldService.getTownCenterPos()
-            local r     = GameConfig.TOWN_RADIUS
-            local angle = math.random() * 2 * math.pi
-            local dist  = r * (0.5 + math.random() * 0.5)
+
+            local deathPos = AnimalSvc.killAnimal(nearest.id)
+            if not deathPos then continue end  -- already killed by another hunter
+
+            -- Walk to collect coins at death site
             setNpcSpeed(npc, GameConfig.NPC_WANDER_SPEED)
-            moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
+            moveNpcTo(npc, deathPos)
+            local deadline = tick() + 8
+            while tick() < deadline and npc.state == "Working" do
+                task.wait(0.5)
+                if (getNpcPosition(npc) - deathPos).Magnitude < 3 then break end
+            end
+            if npc.state == "Working" then collectNearbyCoins(npc) end
+        end
+
+        -- Cleanup: release tower slot when loop exits
+        if occupiedTower and _towerSlots[occupiedTower] == npc.id then
+            _towerSlots[occupiedTower] = nil
         end
     end)
 end
@@ -773,6 +973,9 @@ task.spawn(function()
         for _, npc in _npcs do
             if npc.profession == "Builder" and npc.state == "Working" then
                 collectNearbyCoins(npc)
+            elseif npc.profession == "Hunter"
+                and (npc.state == "Working" or npc.state == "TowerArcher") then
+                collectNearbyCoins(npc)
             elseif npc.profession == "Jobless"
                 and (npc.state == "IdleAtTown" or npc.state == "FetchingTool") then
                 collectNearbyCoins(npc)
@@ -819,6 +1022,10 @@ end)
 
 TimeService.onDusk(function()
     local wallPos = GameConfig.TOWN_CENTER_POS
+    -- Clear tower occupancy before state changes so slots reopen at dawn
+    local occupiedTowers = {}
+    for tower in _towerSlots do table.insert(occupiedTowers, tower) end
+    for _, tower in occupiedTowers do _towerSlots[tower] = nil end
     for _, npc in _npcs do
         if npc.profession ~= "Homeless" then
             npc.state = "ReturningToWalls"
@@ -832,9 +1039,13 @@ end)
 
 TimeService.onDawn(function(_day)
     for _, npc in _npcs do
-        if npc.profession == "Builder" or npc.profession == "Hunter" then
+        if npc.profession == "Builder" then
             npc.state = "Working"
-            print("[NpcService]", npc.profession, "ready on day", _day)
+            print("[NpcService] Builder ready on day", _day)
+        elseif npc.profession == "Hunter" then
+            -- startHunterLoop bumps gen and spawns a fresh loop
+            startHunterLoop(npc)
+            print("[NpcService] Hunter ready on day", _day)
         end
     end
 end)
