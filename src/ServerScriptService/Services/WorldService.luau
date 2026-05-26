@@ -1137,6 +1137,7 @@ function WorldService.spawnDevTown()
     end
 
     -- Firepit — Fire.Color is a ColorSequence, not Color3; just use size+heat
+    print("[DevTown] step 1: firepit")
     local pit      = Instance.new("Part")
     pit.Name       = "FirePit"
     pit.Size       = Vector3.new(8, 2, 8)
@@ -1152,6 +1153,7 @@ function WorldService.spawnDevTown()
     label(pit, "Firepit Lvl 6")
 
     -- Tool shops
+    print("[DevTown] step 2: shops")
     WorldService.spawnHammerShop()
     local hammerShop = workspace:FindFirstChild("HammerShop")
     local bowShop    = workspace:FindFirstChild("BowShop")
@@ -1172,12 +1174,14 @@ function WorldService.spawnDevTown()
         return p
     end
 
+    print("[DevTown] step 3: placeholder shops")
     devShop("Farmer",  BrickColor.new("Bright green"),    Vector3.new( 24, 2,  24))
     devShop("Upgrade", BrickColor.new("Bright yellow"),   Vector3.new(-24, 2, -24))
     devShop("Bomb",    BrickColor.new("Dark stone grey"), Vector3.new(  0, 2,  18))
     devShop("Pikeman", BrickColor.new("Bright red"),      Vector3.new( 32, 2,   0))
 
     -- Town Hall
+    print("[DevTown] step 4: town hall")
     local hall      = Instance.new("Part")
     hall.Name       = "TownHall"
     hall.Size       = Vector3.new(14, 10, 14)
@@ -1189,6 +1193,7 @@ function WorldService.spawnDevTown()
     label(hall, "Town Hall")
 
     -- Cardinal defenses
+    print("[DevTown] step 5: cardinal defenses")
     WorldService.unlockCardinalDefenses()
     WorldService.autoCompleteTownStructures()
     for _, child in workspace:GetChildren() do
@@ -1199,9 +1204,11 @@ function WorldService.spawnDevTown()
     end
 
     -- Circular perimeter walls
+    print("[DevTown] step 6: perimeter walls")
     WorldService.spawnPerimeterWalls()
 
     -- 8 portals around Island 5 perimeter
+    print("[DevTown] step 7: portals")
     local islandR = GameConfig.ISLAND_RADIUS_BY_ISLAND[5]
     for i = 0, 7 do
         local angle = i * (math.pi / 4)
@@ -1212,6 +1219,7 @@ function WorldService.spawnDevTown()
     end
 
     -- Guardian placeholder
+    print("[DevTown] step 8: guardian + dungeon")
     local guardian      = Instance.new("Part")
     guardian.Name       = "BigBreeder"
     guardian.Size       = Vector3.new(12, 20, 12)
