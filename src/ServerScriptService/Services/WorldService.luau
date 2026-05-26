@@ -1101,6 +1101,14 @@ end
 function WorldService.spawnDevTown()
     local center = GameConfig.TOWN_CENTER_POS
 
+    -- Remove default Baseplate to prevent Z-fighting with DevGround
+    for _, child in workspace:GetChildren() do
+        if child.Name == "Baseplate" and child:IsA("BasePart") then
+            child:Destroy()
+            break
+        end
+    end
+
     -- Ground plane covering the full island so players don't fall off
     local ground        = Instance.new("Part")
     ground.Name         = "DevGround"
@@ -1118,21 +1126,20 @@ function WorldService.spawnDevTown()
     end
 
     local function label(part: BasePart, text: string)
-        local bb             = Instance.new("BillboardGui")
-        bb.Size              = UDim2.new(0, 220, 0, 44)
-        bb.StudsOffset       = Vector3.new(0, part.Size.Y / 2 + 3, 0)
-        bb.AlwaysOnTop       = true
-        bb.Parent            = part
-        local lbl                    = Instance.new("TextLabel")
-        lbl.Size                     = UDim2.new(1, 0, 1, 0)
-        lbl.BackgroundTransparency   = 1
-        lbl.TextColor3               = Color3.new(1, 1, 1)
-        lbl.TextStrokeTransparency   = 0
-        lbl.TextStrokeColor3         = Color3.new(0, 0, 0)
-        lbl.TextScaled               = true
-        lbl.Font                     = Enum.Font.GothamBold
-        lbl.Text                     = text
-        lbl.Parent                   = bb
+        local bb          = Instance.new("BillboardGui")
+        bb.Size           = UDim2.new(0, 220, 0, 44)
+        bb.StudsOffset    = Vector3.new(0, part.Size.Y / 2 + 3, 0)
+        bb.Parent         = part
+        local lbl                  = Instance.new("TextLabel")
+        lbl.Size                   = UDim2.new(1, 0, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.TextColor3             = Color3.new(1, 1, 1)
+        lbl.TextStrokeTransparency = 0
+        lbl.TextStrokeColor3       = Color3.new(0, 0, 0)
+        lbl.TextScaled             = true
+        lbl.Font                   = Enum.Font.GothamBold
+        lbl.Text                   = text
+        lbl.Parent                 = bb
     end
 
     -- Large firepit at center (spawned directly; no mayor house needed in dev mode)
