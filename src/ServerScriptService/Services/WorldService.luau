@@ -1095,6 +1095,22 @@ end
 function WorldService.spawnDevTown()
     local center = GameConfig.TOWN_CENTER_POS
 
+    -- Ground plane covering the full island so players don't fall off
+    local ground        = Instance.new("Part")
+    ground.Name         = "DevGround"
+    ground.Size         = Vector3.new(1200, 1, 1200)
+    ground.BrickColor   = BrickColor.new("Bright green")
+    ground.Material     = Enum.Material.Grass
+    ground.Anchored     = true
+    ground.CanCollide   = true
+    ground.Position     = Vector3.new(center.X, -0.5, center.Z)
+    ground.Parent       = workspace
+
+    -- Move spawn to town center so players land in the action
+    if _spawn then
+        _spawn.Position = center + Vector3.new(0, 1, 0)
+    end
+
     local function label(part: BasePart, text: string)
         local bb             = Instance.new("BillboardGui")
         bb.Size              = UDim2.new(0, 220, 0, 44)
