@@ -13,7 +13,7 @@ return {
 
     -- Per-island scaling. Island 5 must fit: main dungeon + lighthouse + 8 portals.
     ISLAND_RADIUS_BY_ISLAND = {240, 295, 345, 405, 510},
-    TREE_COUNT_BY_ISLAND    = { 88, 113, 144, 181, 219},
+    TREE_COUNT_BY_ISLAND    = {110, 140, 180, 225, 275},
 
     -- Gate positions (placeholder — no gate models in Phase 1)
     GATE_NORTH = Vector3.new(  0, 0, -40),
@@ -79,15 +79,27 @@ return {
 
     -- Structures
     STRUCTURE_BUILD_DURATION = 5,
+    TOWER_BUILD_COST         = 3,   -- coins to unlock a tower marker (player F-hold); builder then completes it
+    BARRICADE_BUILD_COST     = 1,   -- coins to unlock a barricade marker; builder then completes it
+    FARMING_BUILD_COST       = 4,   -- coins player must spend to establish a farming area
     TOWER_MAX_BUILDERS       = 2,
     BARRICADE_MAX_BUILDERS   = 2,
 
+    -- Random scattered build markers (placed by buildIsland, built by player coin drop)
+    RANDOM_BARRICADE_COUNT   = 14,
+    RANDOM_TOWER_COUNT       = 10,
+    RANDOM_FARM_COUNT        = 8,
+    MARKER_MIN_DIST_TOWN     = 20,  -- studs beyond town radius before markers can spawn
+    MARKER_MIN_DIST_PORTAL   = 30,  -- keep markers away from portals and guardian
+    MARKER_MIN_DIST_GUARDIAN = 30,  -- Phase 2: Big Breeder exclusion zone
+    MARKER_MIN_DIST_MARKER   = 22,  -- minimum studs between any two random markers
+
     -- Trees
     TREE_MAX_PLAYER_MARKS = 16,  -- total marked trees allowed at once
-    TREE_COUNT           = 45,
+    TREE_COUNT           = 57,
     TREE_MIN_DIST_TOWN   = 15,
     TREE_MIN_DIST_PORTAL = 12,
-    TREE_CHOP_DURATION   = 3,
+    TREE_CHOP_DURATION   = 3.75,
 
     -- Mounds (Phase 3 — placed but inert in Phase 1)
     MOUND_COUNT           = 8,

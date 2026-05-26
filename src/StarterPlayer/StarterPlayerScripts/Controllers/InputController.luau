@@ -342,11 +342,19 @@ local function watchForBoat()
 end
 
 local function watchForStructureFoundations()
+    local function removeBubbleAndInteractive(part: BasePart)
+        for i, item in _interactives do
+            if item.part == part then table.remove(_interactives, i) break end
+        end
+        local bb = part:FindFirstChild("CoinBubble")
+        if bb then bb:Destroy() end
+    end
+
     local function attach(child)
         if not child:IsA("BasePart") then return end
         if child:GetAttribute("Level") ~= 0 then return end
-        local n = child.Name
-        if not (n:sub(1, 16) == "Tower_Foundation" or n:sub(1, 20) == "Barricade_Foundation") then return end
+        if not child:GetAttribute("StructureType") then return end
+        if child:GetAttribute("BuildUnlocked") == true then return end  -- already paid; builder handles it
         local part     = child :: BasePart
         local required = part:GetAttribute("BuildRequired") or GameConfig.STRUCTURE_BUILD_DURATION
         local initial  = required - (part:GetAttribute("BuildProgress") or 0)
@@ -354,21 +362,17 @@ local function watchForStructureFoundations()
         register(part, 1, function(): boolean
             return Remotes.BuildStructure:InvokeServer()
         end, function(): boolean
-            return part:GetAttribute("Level") == 0
+            return part:GetAttribute("Level") == 0 and part:GetAttribute("BuildUnlocked") ~= true
         end, GameConfig.STRUCTURE_INTERACT_RADIUS)
-        -- Keep bubble count in sync with build progress, remove when done
+        -- Remove bubble when fully paid (BuildUnlocked) or when actually built (Level=1)
         part.AttributeChanged:Connect(function(attr: string)
-            if attr ~= "BuildProgress" and attr ~= "Level" then return end
-            if part:GetAttribute("Level") ~= 0 then
-                for i, item in _interactives do
-                    if item.part == part then table.remove(_interactives, i) break end
-                end
-                local bb = part:FindFirstChild("CoinBubble")
-                if bb then bb:Destroy() end
+            if attr ~= "BuildProgress" and attr ~= "Level" and attr ~= "BuildUnlocked" then return end
+            if part:GetAttribute("Level") ~= 0 or part:GetAttribute("BuildUnlocked") == true then
+                removeBubbleAndInteractive(part)
                 return
             end
-            local req  = part:GetAttribute("BuildRequired") or GameConfig.STRUCTURE_BUILD_DURATION
-            local prog = part:GetAttribute("BuildProgress") or 0
+            local req   = part:GetAttribute("BuildRequired") or GameConfig.STRUCTURE_BUILD_DURATION
+            local prog  = part:GetAttribute("BuildProgress") or 0
             local label = getBubbleLabel(part)
             if label and label.Parent then label.Text = tostring(req - prog) end
         end)

@@ -11,6 +11,7 @@ type TreeData = {
     treeSize: number,
 }
 local _trees: {[string]: TreeData} = {}
+local _treeClaims: {[string]: boolean} = {}  -- treeId → claimed; enforces 1 builder per tree
 
 local _campPositions: {Vector3} = {}
 local _portals: {BasePart} = {}
@@ -349,10 +350,14 @@ function WorldService.buildIsland(islandIdx: number?)
             local radial  = Vector3.new(math.cos(theta), 0, math.sin(theta))
             local tangent = Vector3.new(-math.sin(theta), 0, math.cos(theta))
             local base    = center + radial * r
-            table.insert(structureSpots, base + tangent * (-2.5))  -- tower
-            table.insert(structureSpots, base + tangent *   3.5)   -- barricade
+            table.insert(structureSpots, base + tangent * (-8))  -- tower
+            table.insert(structureSpots, base + tangent *   8)    -- barricade
         end
     end
+
+    -- Generate random marker positions now (before trees) so trees won't overlap them.
+    -- The function appends to structureSpots and also creates the marker parts.
+    WorldService.spawnRandomStructureMarkers(center, radius, rng, structureSpots, portalPositions)
 
     local placedTrees: {{pos: Vector3, size: number}} = {}
 
@@ -509,10 +514,12 @@ function WorldService.markTree(treeId: string, playerId: number, cost: number): 
     return true
 end
 
-function WorldService.removeTree(treeId: string)
+-- Returns true if the tree was actually removed, false if already gone (prevents duplicate pay).
+function WorldService.removeTree(treeId: string): boolean
     local t = _trees[treeId]
-    if not t then return end
-    _trees[treeId] = nil  -- deregister immediately so no second chop is attempted
+    if not t then return false end
+    _trees[treeId] = nil      -- deregister immediately
+    _treeClaims[treeId] = nil -- release claim
 
     local model = t.instance
     local pos   = t.position
@@ -557,6 +564,23 @@ function WorldService.removeTree(treeId: string)
         grass.Position   = pos + Vector3.new(0, 0.1, 0)
         grass.Parent     = workspace
     end)
+    return true
+end
+
+-- Claim a tree for one builder; returns false if already claimed or gone.
+function WorldService.claimTree(treeId: string): boolean
+    if not _trees[treeId] then return false end
+    if _treeClaims[treeId] then return false end
+    _treeClaims[treeId] = true
+    return true
+end
+
+function WorldService.releaseTreeClaim(treeId: string)
+    _treeClaims[treeId] = nil
+end
+
+function WorldService.isTreeClaimed(treeId: string): boolean
+    return _treeClaims[treeId] == true
 end
 
 function WorldService.registerGroundTool(inst: BasePart, pos: Vector3)
@@ -678,6 +702,86 @@ function WorldService.consumeFood(part: BasePart)
     if part.Parent then part:Destroy() end
 end
 
+-- Returns the 4 cardinal gate positions (passable gaps in the town wall).
+-- Used by NpcService to route NPCs through walls instead of into them.
+function WorldService.getGatePositions(): {Vector3}
+    local center = GameConfig.TOWN_CENTER_POS
+    local r      = GameConfig.TOWN_RADIUS
+    return {
+        center + Vector3.new( r,  0,  0),   -- East
+        center + Vector3.new(-r,  0,  0),   -- West
+        center + Vector3.new( 0,  0,  r),   -- South
+        center + Vector3.new( 0,  0, -r),   -- North
+    }
+end
+
+-- Scattered build-marker spots placed across the island at game start.
+-- Players spend coins (F-hold) to build them; builders never touch these.
+-- Appends generated positions into existingSpots so tree placement avoids them.
+-- guardianPos is optional; pass it when Phase 2 Big Breeder position is known.
+function WorldService.spawnRandomStructureMarkers(
+    center: Vector3, radius: number, rng: Random,
+    existingSpots: {Vector3}, portalPositions: {Vector3}, guardianPos: Vector3?
+)
+    local minR        = GameConfig.TOWN_RADIUS + GameConfig.MARKER_MIN_DIST_TOWN
+    local minPortal   = GameConfig.MARKER_MIN_DIST_PORTAL
+    local minGuardian = GameConfig.MARKER_MIN_DIST_GUARDIAN
+    local minBetween  = GameConfig.MARKER_MIN_DIST_MARKER
+
+    -- All markers are flat (height 0.5) on the ground until built.
+    local specs = {
+        { count = GameConfig.RANDOM_BARRICADE_COUNT, structType = "Barricade",
+          size = Vector3.new(6, 0.5, 2), color = BrickColor.new("Medium stone grey"),
+          cost = GameConfig.BARRICADE_BUILD_COST, namePrefix = "Barricade_Foundation_R" },
+        { count = GameConfig.RANDOM_TOWER_COUNT,     structType = "Tower",
+          size = Vector3.new(3, 0.5, 3), color = BrickColor.new("Reddish brown"),
+          cost = GameConfig.TOWER_BUILD_COST,     namePrefix = "Tower_Foundation_R" },
+        { count = GameConfig.RANDOM_FARM_COUNT,      structType = "FarmingArea",
+          size = Vector3.new(10, 0.5, 10), color = BrickColor.new("Bright yellow"),
+          cost = GameConfig.FARMING_BUILD_COST,   namePrefix = "Farm_Foundation_" },
+    }
+
+    local counter = 0
+    for _, spec in specs do
+        for _ = 1, spec.count do
+            local pos
+            local ok = false
+            for _ = 1, 120 do
+                pos = randXZ(rng, minR, radius * 0.85, 0)
+                local clearPortals  = not tooClose(pos, portalPositions, minPortal)
+                local clearSpots    = not tooClose(pos, existingSpots, minBetween)
+                local clearGuardian = not guardianPos or (pos - guardianPos).Magnitude >= minGuardian
+                if clearPortals and clearSpots and clearGuardian then
+                    ok = true
+                    break
+                end
+            end
+            if not ok then
+                warn("[WorldService] random marker", spec.structType, "could not be placed — skipped")
+                continue
+            end
+            counter += 1
+            table.insert(existingSpots, pos)
+
+            local part = Instance.new("Part")
+            part.Name  = spec.namePrefix .. counter
+            part.Size  = spec.size
+            part.BrickColor   = spec.color
+            part.Transparency = 0.4
+            part.Anchored     = true
+            part.CanCollide   = false
+            part.Position     = pos + Vector3.new(0, 0.25, 0)
+            part.Parent       = workspace
+            part:SetAttribute("StructureType",   spec.structType)
+            part:SetAttribute("Level",           0)
+            part:SetAttribute("BuildUnlocked",   false)
+            part:SetAttribute("BuildProgress",   0)
+            part:SetAttribute("BuildRequired",   spec.cost)
+        end
+    end
+    print("[WorldService] Random structure markers placed:", counter)
+end
+
 -- 4 pairs of (tower + barricade) at the N/E/S/W positions on the town boundary.
 -- Each pair has the tower and barricade side-by-side, leaving a ~12-stud opening
 -- at each cardinal gap for gates.  Barricades become gates at upgrade 2.
@@ -697,59 +801,62 @@ function WorldService.spawnTownStructures()
         local tangent = Vector3.new(-math.sin(theta), 0, math.cos(theta))
         local base    = center + radial * r   -- point on circumference
 
-        -- Tower (3×4×3): sits 2.5 studs to the "left" of the cardinal along the tangent
-        local tH      = 4
-        local tPos    = base + tangent * (-2.5) + Vector3.new(0, tH / 2, 0)
+        -- Tower: flat 3×0.5×3 brown square marker; expands to full height when built
+        local tPos    = base + tangent * (-8) + Vector3.new(0, 0.25, 0)
         local tower   = Instance.new("Part")
         tower.Name    = "Tower_Foundation_" .. labels[idx]
-        tower.Size    = Vector3.new(3, tH, 3)
+        tower.Size    = Vector3.new(3, 0.5, 3)
         tower.BrickColor  = BrickColor.new("Reddish brown")
-        tower.Transparency = 0.5
+        tower.Transparency = 0.4
         tower.Anchored    = true
         tower.CanCollide  = false  -- passable until built
         tower.CFrame      = CFrame.lookAt(tPos, Vector3.new(center.X, tPos.Y, center.Z))
         tower.Parent      = workspace
         tower:SetAttribute("StructureType",   "Tower")
         tower:SetAttribute("Level",           0)
+        tower:SetAttribute("PlayerOnly",      true)
+        tower:SetAttribute("CardinalDefense", true)   -- completed by tier-2 firepit, not by player coins
         tower:SetAttribute("MaxBuilders",     GameConfig.TOWER_MAX_BUILDERS)
         tower:SetAttribute("CurrentBuilders", 0)
         tower:SetAttribute("BuildProgress",   0)
-        tower:SetAttribute("BuildRequired",   GameConfig.STRUCTURE_BUILD_DURATION)
+        tower:SetAttribute("BuildRequired",   GameConfig.TOWER_BUILD_COST)
+        tower:SetAttribute("BuildUnlocked",   false)
 
-        -- Barricade (6×2×2): sits 3.5 studs to the "right" of the cardinal
-        local bH         = 2
-        local bPos       = base + tangent * 3.5 + Vector3.new(0, bH / 2, 0)
+        -- Barricade: flat 6×0.5×2 grey rectangle marker; expands to full height when built
+        local bPos       = base + tangent * 8 + Vector3.new(0, 0.25, 0)
         local barricade  = Instance.new("Part")
         barricade.Name   = "Barricade_Foundation_" .. labels[idx]
-        barricade.Size   = Vector3.new(6, bH, 2)
-        barricade.BrickColor  = BrickColor.new("Bright pink")
-        barricade.Transparency = 0.5
+        barricade.Size   = Vector3.new(6, 0.5, 2)
+        barricade.BrickColor  = BrickColor.new("Medium stone grey")
+        barricade.Transparency = 0.4
         barricade.Anchored    = true
         barricade.CanCollide  = false  -- passable until built
         barricade.CFrame      = CFrame.lookAt(bPos, Vector3.new(center.X, bPos.Y, center.Z))
         barricade.Parent      = workspace
         barricade:SetAttribute("StructureType",   "Barricade")
         barricade:SetAttribute("Level",           0)
+        barricade:SetAttribute("PlayerOnly",      true)
+        barricade:SetAttribute("CardinalDefense", true)   -- completed by tier-2 firepit, not by player coins
         barricade:SetAttribute("MaxBuilders",     GameConfig.BARRICADE_MAX_BUILDERS)
         barricade:SetAttribute("CurrentBuilders", 0)
         barricade:SetAttribute("BuildProgress",   0)
-        barricade:SetAttribute("BuildRequired",   GameConfig.STRUCTURE_BUILD_DURATION)
+        barricade:SetAttribute("BuildRequired",   GameConfig.BARRICADE_BUILD_COST)
+        barricade:SetAttribute("BuildUnlocked",   false)
     end
 
     print("[WorldService] Town Level 1 structures spawned (4 tower+barricade pairs)")
 end
 
--- Instantly completes all Level-0 foundations (triggered by firepit upgrade instead of NPC build time)
+-- Instantly completes only the cardinal town defense foundations (triggered by tier-2 firepit).
+-- Random scattered markers are NOT auto-completed; players must build those manually.
 function WorldService.autoCompleteTownStructures()
     for _, child in workspace:GetChildren() do
         if not child:IsA("BasePart") then continue end
         if child:GetAttribute("Level") ~= 0 then continue end
-        local n = child.Name
-        if n:sub(1, 16) == "Tower_Foundation" or n:sub(1, 20) == "Barricade_Foundation" then
-            WorldService.markStructureBuilt(child :: BasePart)
-        end
+        if not child:GetAttribute("CardinalDefense") then continue end
+        WorldService.markStructureBuilt(child :: BasePart)
     end
-    print("[WorldService] Town structures auto-completed via firepit upgrade")
+    print("[WorldService] Cardinal town defenses completed via firepit tier-2 upgrade")
 end
 
 function WorldService.getUnbuiltStructures(): {BasePart}
@@ -758,8 +865,7 @@ function WorldService.getUnbuiltStructures(): {BasePart}
         if not child:IsA("BasePart") then continue end
         if child:GetAttribute("Level") ~= 0 then continue end
         if child:GetAttribute("BuildInProgress") then continue end
-        local n = child.Name
-        if n:sub(1, 16) == "Tower_Foundation" or n:sub(1, 20) == "Barricade_Foundation" then
+        if child:GetAttribute("StructureType") then
             table.insert(list, child :: BasePart)
         end
     end
@@ -769,15 +875,32 @@ end
 function WorldService.markStructureBuilt(inst: BasePart)
     inst:SetAttribute("Level", 1)
     inst:SetAttribute("BuildInProgress", false)
-    inst.Transparency    = 0
-    inst.CanCollide      = true
-    inst.BrickColor      = BrickColor.new("Dark stone grey")
-    inst.CollisionGroup  = "Defense"
-    inst.Name            = inst.Name:gsub("_Foundation", "")
-    -- Barricades are weaker than towers
-    local isBarricade = inst.Name:find("Barricade") ~= nil
-    inst:SetAttribute("Health",    isBarricade and GameConfig.BARRICADE_HEALTH or GameConfig.BARRICADE_HEALTH * 2)
-    inst:SetAttribute("MaxHealth", isBarricade and GameConfig.BARRICADE_HEALTH or GameConfig.BARRICADE_HEALTH * 2)
+    inst.Transparency = 0
+    inst.Name         = inst.Name:gsub("_Foundation", "")
+    local structType  = inst:GetAttribute("StructureType")
+    if structType == "Tower" then
+        -- Flat 3×0.5×3 marker expands to full 3×4×3 tower
+        inst.Size     = Vector3.new(3, 4, 3)
+        inst.Position = Vector3.new(inst.Position.X, 2, inst.Position.Z)
+        inst.CanCollide     = true
+        inst.BrickColor     = BrickColor.new("Dark stone grey")
+        inst.CollisionGroup = "Defense"
+        inst:SetAttribute("Health",    GameConfig.BARRICADE_HEALTH * 2)
+        inst:SetAttribute("MaxHealth", GameConfig.BARRICADE_HEALTH * 2)
+    elseif structType == "Barricade" then
+        -- Flat 6×0.5×2 marker expands to full 6×2×2 barricade/gate
+        inst.Size     = Vector3.new(6, 2, 2)
+        inst.Position = Vector3.new(inst.Position.X, 1, inst.Position.Z)
+        inst.CanCollide     = true
+        inst.BrickColor     = BrickColor.new("Dark stone grey")
+        inst.CollisionGroup = "Defense"
+        inst:SetAttribute("Health",    GameConfig.BARRICADE_HEALTH)
+        inst:SetAttribute("MaxHealth", GameConfig.BARRICADE_HEALTH)
+    elseif structType == "FarmingArea" then
+        -- Farm plots stay flat and walkable; just solidify the color
+        inst.CanCollide = false
+        inst.BrickColor = BrickColor.new("Sand green")
+    end
     print("[WorldService] Built:", inst.Name)
 end
 
@@ -813,6 +936,20 @@ end
 
 type BuildJob = { instance: BasePart, position: Vector3 }
 
+-- Unlock all cardinal town defenses for builder construction (called by tier-1 fire upgrade).
+-- Sets BuildUnlocked=true and resets progress to builder build-time phase.
+function WorldService.unlockCardinalDefenses()
+    for _, child in workspace:GetChildren() do
+        if not child:IsA("BasePart") then continue end
+        if child:GetAttribute("Level") ~= 0 then continue end
+        if not child:GetAttribute("CardinalDefense") then continue end
+        child:SetAttribute("BuildUnlocked", true)
+        child:SetAttribute("BuildProgress", 0)
+        child:SetAttribute("BuildRequired", GameConfig.STRUCTURE_BUILD_DURATION)
+    end
+    print("[WorldService] Cardinal defenses unlocked — builders will complete them")
+end
+
 function WorldService.getAvailableBuildJobs(): {BuildJob}
     local jobs = {}
     for _, child in workspace:GetChildren() do
@@ -821,9 +958,10 @@ function WorldService.getAvailableBuildJobs(): {BuildJob}
         local maxB = child:GetAttribute("MaxBuilders") or 1
         local curB = child:GetAttribute("CurrentBuilders") or 0
         if curB >= maxB then continue end
-        local n = child.Name
-        local isStructure = n:sub(1, 16) == "Tower_Foundation" or n:sub(1, 20) == "Barricade_Foundation"
-        local isBoat = n == "BrokenBoat" and child:GetAttribute("Marked") == true
+        -- Structures become builder jobs only after player has paid to unlock them
+        local isStructure = child:GetAttribute("StructureType") ~= nil
+            and child:GetAttribute("BuildUnlocked") == true
+        local isBoat = child.Name == "BrokenBoat" and child:GetAttribute("Marked") == true
         if isStructure or isBoat then
             table.insert(jobs, { instance = child :: BasePart, position = child.Position })
         end

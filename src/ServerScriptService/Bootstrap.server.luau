@@ -158,7 +158,10 @@ Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
         if fire then fire.Size = 6 + _firepitLevel * 2 end
     end
     if _firepitLevel == 1 then
-        WorldService.autoCompleteTownStructures()
+        WorldService.unlockCardinalDefenses()   -- 8g "pays for" all 8 cardinal defenses; builders complete them
+    end
+    if _firepitLevel == 2 then
+        MayorService.buildTent(GameConfig.TOWN_CENTER_POS)
     end
     local nextCost = costs[_firepitLevel + 1]
     Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nextCost)
@@ -176,7 +179,9 @@ Remotes.MarkBoat.OnServerInvoke = function(player: Player): boolean
     return ok
 end
 
--- 1 coin = 1 build progress tick on the nearest Level-0 foundation within interact radius
+-- Player pays coin cost to unlock a structure; builder then physically completes it.
+-- 1 coin = 1 payment tick.  When fully paid, BuildUnlocked=true and BuildProgress resets
+-- for the builder's build phase (STRUCTURE_BUILD_DURATION ticks).
 Remotes.BuildStructure.OnServerInvoke = function(player: Player): boolean
     local char = player.Character
     local pos  = char and char.PrimaryPart and char.PrimaryPart.Position
@@ -186,8 +191,8 @@ Remotes.BuildStructure.OnServerInvoke = function(player: Player): boolean
     for _, child in workspace:GetChildren() do
         if not child:IsA("BasePart") then continue end
         if child:GetAttribute("Level") ~= 0 then continue end
-        local n = child.Name
-        if not (n:sub(1, 16) == "Tower_Foundation" or n:sub(1, 20) == "Barricade_Foundation") then continue end
+        if child:GetAttribute("BuildUnlocked") == true then continue end  -- already paid; waiting on builder
+        if not child:GetAttribute("StructureType") then continue end
         local d = ((child :: BasePart).Position - pos).Magnitude
         if d < nearestDist then nearestDist = d; nearest = child :: BasePart end
     end
@@ -200,8 +205,11 @@ Remotes.BuildStructure.OnServerInvoke = function(player: Player): boolean
     local required = nearest:GetAttribute("BuildRequired") or GameConfig.STRUCTURE_BUILD_DURATION
     nearest:SetAttribute("BuildProgress", progress)
     if progress >= required then
-        WorldService.markStructureBuilt(nearest)
-        print("[Bootstrap] Structure built by player:", player.Name, nearest.Name)
+        -- Payment complete — hand off to builders
+        nearest:SetAttribute("BuildUnlocked", true)
+        nearest:SetAttribute("BuildProgress", 0)
+        nearest:SetAttribute("BuildRequired", GameConfig.STRUCTURE_BUILD_DURATION)
+        print("[Bootstrap] Structure unlocked for builders:", nearest.Name, "by", player.Name)
     end
     return true
 end

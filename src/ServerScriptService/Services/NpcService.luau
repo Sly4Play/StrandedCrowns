@@ -118,6 +118,23 @@ end
 
 local NpcService = {}
 
+-- Returns the nearest gate waypoint when the NPC is outside town, otherwise town center.
+-- Ensures NPCs approach town through the 4 cardinal gate openings once walls are solid.
+local function townWaypoint(fromPos: Vector3): Vector3
+    local town = WorldService.getTownCenterPos()
+    if (fromPos - town).Magnitude <= GameConfig.TOWN_RADIUS + 4 then
+        return town
+    end
+    local gates = WorldService.getGatePositions()
+    local nearest = gates[1]
+    local nearestDist = math.huge
+    for _, g in gates do
+        local d = (fromPos - g).Magnitude
+        if d < nearestDist then nearestDist = d; nearest = g end
+    end
+    return nearest
+end
+
 local function becomeJobless(npc: NpcData, campId: number?)
     npc.profession = "Jobless"
     npc.state      = "Jobless"
@@ -128,7 +145,7 @@ local function becomeJobless(npc: NpcData, campId: number?)
         _campCounts[campId] = math.max(0, (_campCounts[campId] or 1) - 1)
     end
     local town = WorldService.getTownCenterPos()
-    moveNpcTo(npc, town)
+    moveNpcTo(npc, townWaypoint(getNpcPosition(npc)))
     task.spawn(function()
         local lastJoblessPos = getNpcPosition(npc)
         while npc.state == "Jobless" do
@@ -139,10 +156,11 @@ local function becomeJobless(npc: NpcData, campId: number?)
                 break
             end
             local curPos = getNpcPosition(npc)
+            local dest   = townWaypoint(curPos)
             if (curPos - lastJoblessPos).Magnitude < 1.5 then
-                nudgeAroundObstacle(npc, town)
+                nudgeAroundObstacle(npc, dest)
             else
-                moveNpcTo(npc, town)
+                moveNpcTo(npc, dest)
             end
             lastJoblessPos = curPos
         end
@@ -308,7 +326,7 @@ local function tryHireHomeless(player: Player, pos: Vector3)
             _campCounts[campIdx] = math.max(0, (_campCounts[campIdx] or 1) - 1)
         end
         local town = WorldService.getTownCenterPos()
-        moveNpcTo(npc, town)
+        moveNpcTo(npc, townWaypoint(getNpcPosition(npc)))
         print("[NpcService] Homeless hired, walking to town")
 
         task.spawn(function()
@@ -321,10 +339,11 @@ local function tryHireHomeless(player: Player, pos: Vector3)
                     break
                 end
                 local curPos = getNpcPosition(npc)
+                local dest   = townWaypoint(curPos)
                 if (curPos - lastHiredPos).Magnitude < 1.5 then
-                    nudgeAroundObstacle(npc, town)
+                    nudgeAroundObstacle(npc, dest)
                 else
-                    moveNpcTo(npc, town)
+                    moveNpcTo(npc, dest)
                 end
                 lastHiredPos = curPos
             end
@@ -406,10 +425,11 @@ local function startWorkerLoop(npc: NpcData)
                 continue
             end
 
-            -- Find nearest marked tree
+            -- Find nearest unclaimed marked tree (1 builder per tree)
             local nearestTree: typeof(marked[1])? = nil
             local nearestTreeDist = math.huge
             for _, tree in marked do
+                if WorldService.isTreeClaimed(tree.id) then continue end
                 local d = (tree.position - myPos).Magnitude
                 if d < nearestTreeDist then
                     nearestTreeDist = d
@@ -430,6 +450,9 @@ local function startWorkerLoop(npc: NpcData)
 
             if nearestTree and (not nearestJob or nearestTreeDist <= nearestJobDist) then
                 -- ── Chop tree ────────────────────────────────────────────────
+                -- Claim first; if another builder beat us to it, skip this tick
+                if not WorldService.claimTree(nearestTree.id) then continue end
+
                 setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
                 local treeTarget = nearestTree.position
                 moveNpcTo(npc, treeTarget)
@@ -448,23 +471,36 @@ local function startWorkerLoop(npc: NpcData)
                         lastTPos = cur
                     end
                 end
-                if npc.state ~= "Working" then continue end
+                if npc.state ~= "Working" then
+                    WorldService.releaseTreeClaim(nearestTree.id)
+                    continue
+                end
 
+                -- Re-verify tree still exists after travel
                 local trees = WorldService.getMarkedTrees()
                 local stillValid = false
                 for _, t in trees do if t.id == nearestTree.id then stillValid = true break end end
-                if not stillValid then continue end
+                if not stillValid then
+                    WorldService.releaseTreeClaim(nearestTree.id)
+                    continue
+                end
 
                 task.wait(GameConfig.TREE_CHOP_DURATION)
-                if npc.state ~= "Working" then continue end
-
-                WorldService.removeTree(nearestTree.id)
-                local choppedAt = getNpcPosition(npc)
-                for _ = 1, GameConfig.TREE_CHOP_REWARD do
-                    CoinService.spawnGroundCoins(choppedAt, 1, 0, true)
+                if npc.state ~= "Working" then
+                    WorldService.releaseTreeClaim(nearestTree.id)
+                    continue
                 end
-                task.wait(0.2)
-                collectNearbyCoins(npc)
+
+                -- Only pay if we actually removed the tree (guards against any edge-case double-chop)
+                local removed = WorldService.removeTree(nearestTree.id)
+                if removed then
+                    local choppedAt = getNpcPosition(npc)
+                    for _ = 1, GameConfig.TREE_CHOP_REWARD do
+                        CoinService.spawnGroundCoins(choppedAt, 1, 0, true)
+                    end
+                    task.wait(0.2)
+                    collectNearbyCoins(npc)
+                end
 
             elseif nearestJob then
                 -- ── Build structure / repair boat ─────────────────────────

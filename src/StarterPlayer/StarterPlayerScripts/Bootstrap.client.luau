@@ -15,12 +15,12 @@ require(Controllers.InputController)
 -- coins fly FROM the NPC position TO the player character.
 
 local function playCoinArc(fromPos: Vector3, toPos: Vector3, count: number)
-    local visual = math.min(count, 6)  -- max 6 coin parts per dump
+    local visual = math.min(count, 8)  -- max 8 coin parts per dump
     for i = 1, visual do
-        task.delay((i - 1) * 0.07, function()
+        task.delay((i - 1) * 0.13, function()
             local coin       = Instance.new("Part")
             coin.Name        = "CoinFX"
-            coin.Size        = Vector3.new(0.45, 0.45, 0.45)
+            coin.Size        = Vector3.new(1.5, 1.5, 1.5)
             coin.Shape       = Enum.PartType.Ball
             coin.BrickColor  = BrickColor.new("Bright yellow")
             coin.Material    = Enum.Material.Neon
@@ -34,14 +34,14 @@ local function playCoinArc(fromPos: Vector3, toPos: Vector3, count: number)
             local mid = (fromPos + toPos) * 0.5 + Vector3.new(0, 5, 0)
 
             local t1 = TweenService:Create(coin,
-                TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
                 { Position = mid })
             t1:Play()
             t1.Completed:Wait()
 
             local t2 = TweenService:Create(coin,
-                TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-                { Position = toPos, Size = Vector3.new(0.05, 0.05, 0.05) })
+                TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+                { Position = toPos })
             t2:Play()
             t2.Completed:Wait()
             coin:Destroy()

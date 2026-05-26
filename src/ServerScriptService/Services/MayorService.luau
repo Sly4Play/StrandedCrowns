@@ -126,6 +126,10 @@ end
 
 local MayorService = {}
 
+function MayorService.buildTent(pos: Vector3)
+    buildTent(pos)
+end
+
 function MayorService.getPosition(): Vector3
     local root = _mayorModel and _mayorModel.PrimaryPart
     return root and root.Position or GameConfig.TOWN_CENTER_POS
