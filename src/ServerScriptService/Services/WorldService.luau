@@ -895,7 +895,8 @@ function WorldService.markStructureBuilt(inst: BasePart)
         inst.Size     = Vector3.new(9, 12, 9)
         inst.Position = Vector3.new(inst.Position.X, 6, inst.Position.Z)
         inst.CanCollide     = true
-        inst.BrickColor     = BrickColor.new("Dark stone grey")
+        inst.BrickColor     = BrickColor.new("Reddish brown")
+        inst.Material       = Enum.Material.Wood
         inst.CollisionGroup = "Defense"
         inst:SetAttribute("Health",       GameConfig.BARRICADE_HEALTH * 2)
         inst:SetAttribute("MaxHealth",    GameConfig.BARRICADE_HEALTH * 2)
@@ -931,7 +932,7 @@ function WorldService.spawnPerimeterWalls()
     local center = GameConfig.TOWN_CENTER_POS
     local r      = GameConfig.TOWN_RADIUS
     local wallH  = 6   -- matches barricade height
-    local wallT  = 1
+    local wallT  = 2   -- thicker for log-palisade look
     local segs   = 10  -- segments per arc
 
     -- Arc start: E-barricade far edge (barricade center tangent +8, half-length 11.5 → far point at tangent 19.5)
@@ -953,7 +954,8 @@ function WorldService.spawnPerimeterWalls()
             local wall = Instance.new("Part")
             wall.Name           = "PerimeterWall_" .. wallNum
             wall.Size           = Vector3.new(wallT, wallH, chord)
-            wall.BrickColor     = BrickColor.new("Dark stone grey")
+            wall.BrickColor     = BrickColor.new("Reddish brown")
+            wall.Material       = Enum.Material.Wood
             wall.Anchored       = true
             wall.CanCollide     = true
             wall.CollisionGroup = "Defense"
@@ -1119,7 +1121,8 @@ function WorldService.spawnDevTown()
     ground.Position   = Vector3.new(center.X, -0.5, center.Z)
     ground.Parent     = workspace
 
-    if _spawn then _spawn.Position = center + Vector3.new(0, 1, 0) end
+    -- Spawn just south of the firepit (pit half-size=4, spawn half-size=3, 1-stud gap)
+    if _spawn then _spawn.Position = center + Vector3.new(0, 1, 8) end
 
     local function label(part: BasePart, text: string)
         local bb       = Instance.new("BillboardGui")
@@ -1177,7 +1180,7 @@ function WorldService.spawnDevTown()
     print("[DevTown] step 3: placeholder shops")
     devShop("Farmer",  BrickColor.new("Bright green"),    Vector3.new( 24, 2,  24))
     devShop("Upgrade", BrickColor.new("Bright yellow"),   Vector3.new(-24, 2, -24))
-    devShop("Bomb",    BrickColor.new("Dark stone grey"), Vector3.new(  0, 2,  18))
+    devShop("Bomb",    BrickColor.new("Dark stone grey"), Vector3.new(  0, 2,  10))
     devShop("Pikeman", BrickColor.new("Bright red"),      Vector3.new( 32, 2,   0))
 
     -- Town Hall
