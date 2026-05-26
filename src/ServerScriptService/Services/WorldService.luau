@@ -1104,70 +1104,62 @@ function WorldService.spawnDevTown()
     -- Remove default Baseplate to prevent Z-fighting with DevGround
     for _, child in workspace:GetChildren() do
         if child.Name == "Baseplate" and child:IsA("BasePart") then
-            child:Destroy()
-            break
+            child:Destroy(); break
         end
     end
 
-    -- Ground plane covering the full island so players don't fall off
-    local ground        = Instance.new("Part")
-    ground.Name         = "DevGround"
-    ground.Size         = Vector3.new(1200, 1, 1200)
-    ground.BrickColor   = BrickColor.new("Bright green")
-    ground.Material     = Enum.Material.Grass
-    ground.Anchored     = true
-    ground.CanCollide   = true
-    ground.Position     = Vector3.new(center.X, -0.5, center.Z)
-    ground.Parent       = workspace
+    -- Ground plane
+    local ground      = Instance.new("Part")
+    ground.Name       = "DevGround"
+    ground.Size       = Vector3.new(1200, 1, 1200)
+    ground.BrickColor = BrickColor.new("Bright green")
+    ground.Material   = Enum.Material.Grass
+    ground.Anchored   = true
+    ground.CanCollide = true
+    ground.Position   = Vector3.new(center.X, -0.5, center.Z)
+    ground.Parent     = workspace
 
-    -- Move spawn to town center so players land in the action
-    if _spawn then
-        _spawn.Position = center + Vector3.new(0, 1, 0)
-    end
+    if _spawn then _spawn.Position = center + Vector3.new(0, 1, 0) end
 
     local function label(part: BasePart, text: string)
-        local bb          = Instance.new("BillboardGui")
-        bb.Size           = UDim2.new(0, 220, 0, 44)
-        bb.StudsOffset    = Vector3.new(0, part.Size.Y / 2 + 3, 0)
-        bb.Parent         = part
+        local bb       = Instance.new("BillboardGui")
+        bb.Size        = UDim2.new(0, 200, 0, 40)
+        bb.StudsOffset = Vector3.new(0, part.Size.Y / 2 + 3, 0)
+        bb.Parent      = part
         local lbl                  = Instance.new("TextLabel")
         lbl.Size                   = UDim2.new(1, 0, 1, 0)
         lbl.BackgroundTransparency = 1
         lbl.TextColor3             = Color3.new(1, 1, 1)
         lbl.TextStrokeTransparency = 0
-        lbl.TextStrokeColor3       = Color3.new(0, 0, 0)
         lbl.TextScaled             = true
         lbl.Text                   = text
         lbl.Parent                 = bb
     end
 
-    -- Large firepit at center (spawned directly; no mayor house needed in dev mode)
+    -- Firepit — Fire.Color is a ColorSequence, not Color3; just use size+heat
     local pit      = Instance.new("Part")
     pit.Name       = "FirePit"
     pit.Size       = Vector3.new(8, 2, 8)
     pit.BrickColor = BrickColor.new("Reddish brown")
-    pit.Material   = Enum.Material.StonePlastic
     pit.Anchored   = true
     pit.CanCollide = true
     pit.Position   = center + Vector3.new(0, 1, 0)
     pit.Parent     = workspace
-    local fire             = Instance.new("Fire")
-    fire.Size              = 50
-    fire.Heat              = 25
-    fire.Color             = Color3.fromRGB(255, 100, 0)
-    fire.SecondaryColor    = Color3.fromRGB(255, 200, 0)
-    fire.Parent            = pit
-    label(pit, "🔥 Firepit Lvl 6")
+    local fire     = Instance.new("Fire")
+    fire.Size      = 30
+    fire.Heat      = 25
+    fire.Parent    = pit
+    label(pit, "Firepit Lvl 6")
 
-    -- Both real tool shops
+    -- Tool shops
     WorldService.spawnHammerShop()
     local hammerShop = workspace:FindFirstChild("HammerShop")
     local bowShop    = workspace:FindFirstChild("BowShop")
-    if hammerShop and hammerShop:IsA("BasePart") then label(hammerShop :: BasePart, "🔨 Hammer Shop") end
-    if bowShop    and bowShop:IsA("BasePart")    then label(bowShop    :: BasePart, "🏹 Bow Shop")    end
+    if hammerShop and hammerShop:IsA("BasePart") then label(hammerShop :: BasePart, "Hammer Shop") end
+    if bowShop    and bowShop:IsA("BasePart")    then label(bowShop    :: BasePart, "Bow Shop")    end
 
     -- Placeholder shops
-    local function devShop(name: string, displayName: string, col: BrickColor, offset: Vector3)
+    local function devShop(name: string, col: BrickColor, offset: Vector3)
         local p = Instance.new("Part")
         p.Name       = name .. "Shop"
         p.Size       = Vector3.new(4, 4, 4)
@@ -1175,25 +1167,15 @@ function WorldService.spawnDevTown()
         p.Anchored   = true
         p.CanCollide = true
         p.Position   = center + offset
-        p:SetAttribute("ShopType", name)
         p.Parent     = workspace
-        local shelf      = Instance.new("Part")
-        shelf.Name       = "ToolRack"
-        shelf.Size       = Vector3.new(3.8, 0.2, 1.4)
-        shelf.BrickColor = BrickColor.new("Reddish brown")
-        shelf.Material   = Enum.Material.Wood
-        shelf.Anchored   = true
-        shelf.CanCollide = false
-        shelf.Position   = center + offset + Vector3.new(0, 2.1, 0)
-        shelf.Parent     = workspace
-        label(p, displayName)
+        label(p, name .. " Shop")
         return p
     end
 
-    devShop("Farmer",  "🌾 Farmer Shop",   BrickColor.new("Bright green"),    Vector3.new( 24, 2,  24))
-    devShop("Upgrade", "⬆ Upgrade Shop",  BrickColor.new("Bright yellow"),   Vector3.new(-24, 2, -24))
-    devShop("Bomb",    "💣 Bomb Shop",     BrickColor.new("Dark stone grey"), Vector3.new(  0, 2,  18))
-    devShop("Pikeman", "⚔ Pikeman Shop",  BrickColor.new("Bright red"),      Vector3.new( 32, 2,   0))
+    devShop("Farmer",  BrickColor.new("Bright green"),    Vector3.new( 24, 2,  24))
+    devShop("Upgrade", BrickColor.new("Bright yellow"),   Vector3.new(-24, 2, -24))
+    devShop("Bomb",    BrickColor.new("Dark stone grey"), Vector3.new(  0, 2,  18))
+    devShop("Pikeman", BrickColor.new("Bright red"),      Vector3.new( 32, 2,   0))
 
     -- Town Hall
     local hall      = Instance.new("Part")
@@ -1204,42 +1186,41 @@ function WorldService.spawnDevTown()
     hall.CanCollide = true
     hall.Position   = center + Vector3.new(0, 5, -22)
     hall.Parent     = workspace
-    label(hall, "🏛 Town Hall")
+    label(hall, "Town Hall")
 
-    -- Build all 8 cardinal defense foundations instantly then label them
+    -- Cardinal defenses
     WorldService.unlockCardinalDefenses()
     WorldService.autoCompleteTownStructures()
     for _, child in workspace:GetChildren() do
         if not child:IsA("BasePart") then continue end
         local sType = child:GetAttribute("StructureType")
-        if sType == "Tower"     then label(child :: BasePart, "🗼 Tower")     end
-        if sType == "Barricade" then label(child :: BasePart, "🧱 Gate")      end
+        if sType == "Tower"     then label(child :: BasePart, "Tower")     end
+        if sType == "Barricade" then label(child :: BasePart, "Gate")      end
     end
 
-    -- Circular perimeter wall (called directly — no mayor house in dev mode)
+    -- Circular perimeter walls
     WorldService.spawnPerimeterWalls()
 
-    -- 8 portals evenly around Island 5 perimeter (every 45°)
+    -- 8 portals around Island 5 perimeter
     local islandR = GameConfig.ISLAND_RADIUS_BY_ISLAND[5]
     for i = 0, 7 do
         local angle = i * (math.pi / 4)
         local pos   = center + Vector3.new(math.cos(angle) * islandR, 0, math.sin(angle) * islandR)
         local p     = makePortal(pos)
         table.insert(_portals, p)
-        label(p, "👁 Portal " .. (i + 1))
+        label(p, "Portal " .. (i + 1))
     end
 
-    -- Guardian (Big Breeder) placeholder
+    -- Guardian placeholder
     local guardian      = Instance.new("Part")
     guardian.Name       = "BigBreeder"
     guardian.Size       = Vector3.new(12, 20, 12)
     guardian.BrickColor = BrickColor.new("Maroon")
-    guardian.Material   = Enum.Material.Neon
     guardian.Anchored   = true
     guardian.CanCollide = true
     guardian.Position   = center + Vector3.new(0, 10, -420)
     guardian.Parent     = workspace
-    label(guardian, "☠ Guardian")
+    label(guardian, "Guardian")
 
     -- Dungeon placeholder
     local dungeon       = Instance.new("Part")
@@ -1250,7 +1231,7 @@ function WorldService.spawnDevTown()
     dungeon.CanCollide  = true
     dungeon.Position    = center + Vector3.new(0, 10, -280)
     dungeon.Parent      = workspace
-    label(dungeon, "🏰 Dungeon")
+    label(dungeon, "Dungeon")
 
     print("[WorldService] Dev town fully spawned")
 end
