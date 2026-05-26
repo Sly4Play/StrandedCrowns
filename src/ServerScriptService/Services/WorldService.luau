@@ -902,14 +902,52 @@ function WorldService.markStructureBuilt(inst: BasePart)
         inst:SetAttribute("MaxHealth",    GameConfig.BARRICADE_HEALTH * 2)
         inst:SetAttribute("MaxOccupants", 1)   -- one TowerArcher slot
     elseif structType == "Barricade" then
-        -- Long gate wall (23 wide) touches the adjacent tower's edge; height matches wall ring
-        inst.Size     = Vector3.new(23, 6, 2)
-        inst.Position = Vector3.new(inst.Position.X, 3, inst.Position.Z)
+        -- Castle gate: two thick stone pillars + lintel; passage is open (friendly collision group passes through)
+        local pillarH  = 9
+        local pillarW  = 5
+        local halfSpan = 8   -- pillar center from gate midpoint; open passage = 2*halfSpan - pillarW = 11 studs
+        local lookDir  = inst.CFrame.LookVector
+        local rightDir = inst.CFrame.RightVector
+        local origX    = inst.Position.X
+        local origZ    = inst.Position.Z
+        local gateBase = Vector3.new(origX, pillarH / 2, origZ)
+
+        -- Repurpose inst as left gate pillar
+        inst.Size        = Vector3.new(pillarW, pillarH, pillarW)
+        inst.CFrame      = CFrame.lookAt(gateBase - rightDir * halfSpan,
+                                         gateBase - rightDir * halfSpan + lookDir)
         inst.CanCollide     = true
-        inst.BrickColor     = BrickColor.new("Dark stone grey")
+        inst.BrickColor     = BrickColor.new("Medium stone grey")
+        inst.Material       = Enum.Material.SmoothPlastic
         inst.CollisionGroup = "Defense"
         inst:SetAttribute("Health",    GameConfig.BARRICADE_HEALTH)
         inst:SetAttribute("MaxHealth", GameConfig.BARRICADE_HEALTH)
+
+        -- Right gate pillar
+        local rp          = Instance.new("Part")
+        rp.Name           = inst.Name .. "_R"
+        rp.Size           = Vector3.new(pillarW, pillarH, pillarW)
+        rp.CFrame         = CFrame.lookAt(gateBase + rightDir * halfSpan,
+                                          gateBase + rightDir * halfSpan + lookDir)
+        rp.Anchored       = true
+        rp.CanCollide     = true
+        rp.BrickColor     = BrickColor.new("Medium stone grey")
+        rp.Material       = Enum.Material.SmoothPlastic
+        rp.CollisionGroup = "Defense"
+        rp.Parent         = workspace
+
+        -- Lintel spanning the opening
+        local lintelCenter = Vector3.new(origX, pillarH + 1, origZ)
+        local lp           = Instance.new("Part")
+        lp.Name            = inst.Name .. "_Lintel"
+        lp.Size            = Vector3.new(halfSpan * 2 + pillarW, 2, pillarW)
+        lp.CFrame          = CFrame.lookAt(lintelCenter, lintelCenter + lookDir)
+        lp.Anchored        = true
+        lp.CanCollide      = true
+        lp.BrickColor      = BrickColor.new("Medium stone grey")
+        lp.Material        = Enum.Material.SmoothPlastic
+        lp.CollisionGroup  = "Defense"
+        lp.Parent          = workspace
     elseif structType == "FarmingArea" then
         inst.CanCollide = false
         inst.BrickColor = BrickColor.new("Sand green")
@@ -1178,10 +1216,10 @@ function WorldService.spawnDevTown()
     end
 
     print("[DevTown] step 3: placeholder shops")
-    devShop("Farmer",  BrickColor.new("Bright green"),    Vector3.new( 24, 2,  24))
+    devShop("Farmer",  BrickColor.new("Bright green"),    Vector3.new(  0, 2, -22))  -- swapped with TownHall
     devShop("Upgrade", BrickColor.new("Bright yellow"),   Vector3.new(-24, 2, -24))
     devShop("Bomb",    BrickColor.new("Dark stone grey"), Vector3.new(  0, 2,  10))
-    devShop("Pikeman", BrickColor.new("Bright red"),      Vector3.new( 32, 2,   0))
+    devShop("Pikeman", BrickColor.new("Bright red"),      Vector3.new(  6, 2,  10))  -- beside BombShop, 2-stud gap
 
     -- Town Hall
     print("[DevTown] step 4: town hall")
@@ -1191,7 +1229,7 @@ function WorldService.spawnDevTown()
     hall.BrickColor = BrickColor.new("Medium stone grey")
     hall.Anchored   = true
     hall.CanCollide = true
-    hall.Position   = center + Vector3.new(0, 5, -22)
+    hall.Position   = center + Vector3.new(24, 5, 24)  -- swapped with FarmerShop
     hall.Parent     = workspace
     label(hall, "Town Hall")
 
@@ -1240,9 +1278,23 @@ function WorldService.spawnDevTown()
     dungeon.BrickColor  = BrickColor.new("Dark stone grey")
     dungeon.Anchored    = true
     dungeon.CanCollide  = true
-    dungeon.Position    = center + Vector3.new(0, 10, -280)
+    dungeon.Position    = center + Vector3.new(0, 10, 280)  -- south side, opposite Guardian
     dungeon.Parent      = workspace
     label(dungeon, "Dungeon")
+
+    -- Dungeon entrance portal on north (town-facing) face — transports group into dungeon instance
+    -- Dungeon front face is at Z = 280 - 20 = 260; portal sits flush against it
+    local dp          = Instance.new("Part")
+    dp.Name           = "DungeonPortal"
+    dp.Size           = Vector3.new(10, 10, 1)
+    dp.BrickColor     = BrickColor.new("Bright blue")
+    dp.Material       = Enum.Material.Neon
+    dp.Transparency   = 0.3
+    dp.Anchored       = true
+    dp.CanCollide     = false
+    dp.Position       = center + Vector3.new(0, 5, 259.5)
+    dp.Parent         = workspace
+    label(dp, "Enter Dungeon")
 
     print("[WorldService] Dev town fully spawned")
 end
