@@ -51,7 +51,7 @@ local function spawnAnimal()
     local body = Instance.new("Part")
     body.Name           = "HumanoidRootPart"
     body.Size           = Vector3.new(2, 1.5, 3)
-    body.BrickColor     = BrickColor.new("Brown")
+    body.BrickColor     = BrickColor.new("White")
     body.Material       = Enum.Material.SmoothPlastic
     body.CanCollide     = false
     body.CollisionGroup = "Friendly"

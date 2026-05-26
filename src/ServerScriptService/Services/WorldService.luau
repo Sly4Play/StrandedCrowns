@@ -157,13 +157,13 @@ local function makeShop(pos: Vector3, shopType: string, col: BrickColor, offset:
 end
 
 local function makeHammerShop(pos: Vector3): BasePart
-    local p = makeShop(pos, "Hammer", BrickColor.new("Bright orange"), Vector3.new(0, 2, 16))
+    local p = makeShop(pos, "Hammer", BrickColor.new("Bright orange"), Vector3.new(-24, 2, 24))
     initRack(p, "Hammer")
     return p
 end
 
 local function makeBowShop(pos: Vector3): BasePart
-    local p = makeShop(pos, "Bow", BrickColor.new("Bright blue"), Vector3.new(16, 2, 0))
+    local p = makeShop(pos, "Bow", BrickColor.new("Bright blue"), Vector3.new(24, 2, -24))
     initRack(p, "Bow")
     return p
 end
@@ -354,6 +354,9 @@ function WorldService.buildIsland(islandIdx: number?)
             table.insert(structureSpots, base + tangent * (-8))  -- tower
             table.insert(structureSpots, base + tangent *   8)    -- barricade
         end
+        -- Shop positions must match makeHammerShop/makeBowShop offsets
+        table.insert(structureSpots, center + Vector3.new(-24, 0,  24))  -- HammerShop SW
+        table.insert(structureSpots, center + Vector3.new( 24, 0, -24))  -- BowShop    NE
     end
 
     -- Generate random marker positions now (before trees) so trees won't overlap them.
