@@ -1137,7 +1137,6 @@ function WorldService.spawnDevTown()
         lbl.TextStrokeTransparency = 0
         lbl.TextStrokeColor3       = Color3.new(0, 0, 0)
         lbl.TextScaled             = true
-        lbl.Font                   = Enum.Font.GothamBold
         lbl.Text                   = text
         lbl.Parent                 = bb
     end
