@@ -891,9 +891,9 @@ function WorldService.markStructureBuilt(inst: BasePart)
     inst.Name         = inst.Name:gsub("_Foundation", "")
     local structType  = inst:GetAttribute("StructureType")
     if structType == "Tower" then
-        -- Flat 3×0.5×3 marker expands to full 3×4×3 tower
-        inst.Size     = Vector3.new(3, 4, 3)
-        inst.Position = Vector3.new(inst.Position.X, 2, inst.Position.Z)
+        -- 3× height and thickness: 9×12×9
+        inst.Size     = Vector3.new(9, 12, 9)
+        inst.Position = Vector3.new(inst.Position.X, 6, inst.Position.Z)
         inst.CanCollide     = true
         inst.BrickColor     = BrickColor.new("Dark stone grey")
         inst.CollisionGroup = "Defense"
@@ -901,9 +901,9 @@ function WorldService.markStructureBuilt(inst: BasePart)
         inst:SetAttribute("MaxHealth",    GameConfig.BARRICADE_HEALTH * 2)
         inst:SetAttribute("MaxOccupants", 1)   -- one TowerArcher slot
     elseif structType == "Barricade" then
-        -- Flat 6×0.5×2 marker expands to full 6×2×2 barricade/gate
-        inst.Size     = Vector3.new(6, 2, 2)
-        inst.Position = Vector3.new(inst.Position.X, 1, inst.Position.Z)
+        -- Long gate wall (23 wide) touches the adjacent tower's edge; height matches wall ring
+        inst.Size     = Vector3.new(23, 6, 2)
+        inst.Position = Vector3.new(inst.Position.X, 3, inst.Position.Z)
         inst.CanCollide     = true
         inst.BrickColor     = BrickColor.new("Dark stone grey")
         inst.CollisionGroup = "Defense"
@@ -925,41 +925,47 @@ function WorldService.markStructureBuilt(inst: BasePart)
     print("[WorldService] Built:", inst.Name)
 end
 
--- Spawn the 4 diagonal wall segments that close the town perimeter.
--- Each segment connects a barricade endpoint to the adjacent cardinal's tower endpoint,
--- forming a complete enclosure with only the 4 cardinal gate openings passable.
+-- Circular arc wall segments connecting each gate/barricade to the adjacent tower,
+-- following the town boundary circle so the wall curves naturally around town.
 function WorldService.spawnPerimeterWalls()
     local center = GameConfig.TOWN_CENTER_POS
     local r      = GameConfig.TOWN_RADIUS
-    local wallH  = 2   -- matches barricade height
-    local wallT  = 1   -- wall thickness
+    local wallH  = 6   -- matches barricade height
+    local wallT  = 1
+    local segs   = 10  -- segments per arc
 
-    -- (barricade center of one cardinal) → (tower center of the next clockwise cardinal)
-    -- Tangent offsets: barricade at +8, tower at -8 from cardinal center
-    local corners = {
-        { a = center + Vector3.new( r, 0,  8), b = center + Vector3.new( 8, 0,  r) },  -- E→S
-        { a = center + Vector3.new(-8, 0,  r), b = center + Vector3.new(-r, 0,  8) },  -- S→W
-        { a = center + Vector3.new(-r, 0, -8), b = center + Vector3.new(-8, 0, -r) },  -- W→N
-        { a = center + Vector3.new( 8, 0, -r), b = center + Vector3.new( r, 0, -8) },  -- N→E
-    }
+    -- Arc start: E-barricade far edge (barricade center tangent +8, half-length 11.5 → far point at tangent 19.5)
+    -- Arc end:   S-tower near edge (tower center tangent -8, half-width 4.5 → near point at tangent -3.5 → absolute (12.5,0,44))
+    -- By symmetry each arc is the same shape rotated π/2.
+    local aStart = math.atan2(19.5, 44)  -- ≈ 0.417 rad from E-barricade far edge
+    local aEnd   = math.atan2(44, 12.5)  -- ≈ 1.292 rad to S-tower near edge
 
-    for i, corner in corners do
-        local a   = corner.a
-        local b   = corner.b
-        local mid = (a + b) / 2 + Vector3.new(0, wallH / 2, 0)
-        local len = (b - a).Magnitude + 4  -- +4 to overlap slightly into adjacent structures
-
-        local wall = Instance.new("Part")
-        wall.Name         = "PerimeterWall_" .. i
-        wall.Size         = Vector3.new(wallT, wallH, len)
-        wall.BrickColor   = BrickColor.new("Dark stone grey")
-        wall.Anchored     = true
-        wall.CanCollide   = true
-        wall.CollisionGroup = "Defense"
-        wall.CFrame       = CFrame.lookAt(mid, b + Vector3.new(0, wallH / 2, 0))
-        wall.Parent       = workspace
+    local wallNum = 0
+    local function makeArc(a1: number, a2: number)
+        for i = 0, segs - 1 do
+            local t1    = a1 + (a2 - a1) * i / segs
+            local t2    = a1 + (a2 - a1) * (i + 1) / segs
+            local mid   = (t1 + t2) / 2
+            local chord = 2 * r * math.sin(math.abs(t2 - t1) / 2) + 0.1
+            local pos   = center + Vector3.new(math.cos(mid) * r, wallH / 2, math.sin(mid) * r)
+            local ahead = center + Vector3.new(math.cos(t2)  * r, wallH / 2, math.sin(t2)  * r)
+            wallNum += 1
+            local wall = Instance.new("Part")
+            wall.Name           = "PerimeterWall_" .. wallNum
+            wall.Size           = Vector3.new(wallT, wallH, chord)
+            wall.BrickColor     = BrickColor.new("Dark stone grey")
+            wall.Anchored       = true
+            wall.CanCollide     = true
+            wall.CollisionGroup = "Defense"
+            wall.CFrame         = CFrame.lookAt(pos, ahead)
+            wall.Parent         = workspace
+        end
     end
-    print("[WorldService] Town perimeter walls sealed")
+
+    for k = 0, 3 do
+        makeArc(aStart + k * (math.pi / 2), aEnd + k * (math.pi / 2))
+    end
+    print("[WorldService] Circular town perimeter walls spawned")
 end
 
 -- Subscribe to mayor house completion (Bootstrap uses this to sync MayorService state)
@@ -1129,6 +1135,24 @@ function WorldService.spawnDevTown()
         lbl.Parent                   = bb
     end
 
+    -- Large firepit at center (spawned directly; no mayor house needed in dev mode)
+    local pit      = Instance.new("Part")
+    pit.Name       = "FirePit"
+    pit.Size       = Vector3.new(8, 2, 8)
+    pit.BrickColor = BrickColor.new("Reddish brown")
+    pit.Material   = Enum.Material.StonePlastic
+    pit.Anchored   = true
+    pit.CanCollide = true
+    pit.Position   = center + Vector3.new(0, 1, 0)
+    pit.Parent     = workspace
+    local fire             = Instance.new("Fire")
+    fire.Size              = 50
+    fire.Heat              = 25
+    fire.Color             = Color3.fromRGB(255, 100, 0)
+    fire.SecondaryColor    = Color3.fromRGB(255, 200, 0)
+    fire.Parent            = pit
+    label(pit, "🔥 Firepit Lvl 6")
+
     -- Both real tool shops
     WorldService.spawnHammerShop()
     local hammerShop = workspace:FindFirstChild("HammerShop")
@@ -1147,22 +1171,23 @@ function WorldService.spawnDevTown()
         p.Position   = center + offset
         p:SetAttribute("ShopType", name)
         p.Parent     = workspace
-        local shelf       = Instance.new("Part")
-        shelf.Name        = "ToolRack"
-        shelf.Size        = Vector3.new(3.8, 0.2, 1.4)
-        shelf.BrickColor  = BrickColor.new("Reddish brown")
-        shelf.Material    = Enum.Material.Wood
-        shelf.Anchored    = true
-        shelf.CanCollide  = false
-        shelf.Position    = center + offset + Vector3.new(0, 2.1, 0)
-        shelf.Parent      = workspace
+        local shelf      = Instance.new("Part")
+        shelf.Name       = "ToolRack"
+        shelf.Size       = Vector3.new(3.8, 0.2, 1.4)
+        shelf.BrickColor = BrickColor.new("Reddish brown")
+        shelf.Material   = Enum.Material.Wood
+        shelf.Anchored   = true
+        shelf.CanCollide = false
+        shelf.Position   = center + offset + Vector3.new(0, 2.1, 0)
+        shelf.Parent     = workspace
         label(p, displayName)
         return p
     end
 
-    devShop("Farmer",  "🌾 Farmer Shop",  BrickColor.new("Bright green"),    Vector3.new( 24, 2,  24))
-    devShop("Upgrade", "⬆ Upgrade Shop", BrickColor.new("Bright yellow"),   Vector3.new(-24, 2, -24))
-    devShop("Bomb",    "💣 Bomb Shop",    BrickColor.new("Dark stone grey"), Vector3.new(  0, 2,  36))
+    devShop("Farmer",  "🌾 Farmer Shop",   BrickColor.new("Bright green"),    Vector3.new( 24, 2,  24))
+    devShop("Upgrade", "⬆ Upgrade Shop",  BrickColor.new("Bright yellow"),   Vector3.new(-24, 2, -24))
+    devShop("Bomb",    "💣 Bomb Shop",     BrickColor.new("Dark stone grey"), Vector3.new(  0, 2,  18))
+    devShop("Pikeman", "⚔ Pikeman Shop",  BrickColor.new("Bright red"),      Vector3.new( 32, 2,   0))
 
     -- Town Hall
     local hall      = Instance.new("Part")
@@ -1182,26 +1207,11 @@ function WorldService.spawnDevTown()
         if not child:IsA("BasePart") then continue end
         local sType = child:GetAttribute("StructureType")
         if sType == "Tower"     then label(child :: BasePart, "🗼 Tower")     end
-        if sType == "Barricade" then label(child :: BasePart, "🧱 Barricade") end
+        if sType == "Barricade" then label(child :: BasePart, "🧱 Gate")      end
     end
 
-    -- Mayor House — spawn foundation then complete it immediately
-    WorldService.spawnMayorHouseFoundation()
-    for _, child in workspace:GetChildren() do
-        if child:IsA("BasePart") and child:GetAttribute("StructureType") == "MayorHouse" then
-            WorldService.markStructureBuilt(child :: BasePart)
-            label(child :: BasePart, "🏠 Mayor House")
-            break
-        end
-    end
-
-    -- Outer wall ring
-    WorldService.spawnOuterPerimeterWalls()
-    for _, child in workspace:GetChildren() do
-        if child:IsA("BasePart") and child.Name:find("OuterPerimeterWall") then
-            label(child :: BasePart, "🔒 Outer Wall")
-        end
-    end
+    -- Circular perimeter wall (called directly — no mayor house in dev mode)
+    WorldService.spawnPerimeterWalls()
 
     -- 8 portals evenly around Island 5 perimeter (every 45°)
     local islandR = GameConfig.ISLAND_RADIUS_BY_ISLAND[5]

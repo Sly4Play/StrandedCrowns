@@ -62,12 +62,8 @@ end
 if GameConfig.DEV_MODE then
     WorldService.spawnDevTown()
     _firepitLevel = 6
+    -- Fire visual spawned directly in spawnDevTown at full size; just sync HUD
     task.defer(function()
-        local firePit = workspace:FindFirstChild("FirePit") :: BasePart?
-        if firePit then
-            local fire = firePit:FindFirstChildOfClass("Fire")
-            if fire then fire.Size = 6 + _firepitLevel * 2 end
-        end
         Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nil)
     end)
     print("[Bootstrap] DEV_MODE — Island 5 endgame town loaded")
