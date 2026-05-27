@@ -25,6 +25,11 @@ local _spawn: SpawnLocation? = nil
 type RackEntry = { toolType: string, tools: {BasePart} }
 local _racks: {[BasePart]: RackEntry} = {}
 
+local _shieldMounts: {BasePart} = {}
+local _shieldVisuals: {[BasePart]: BasePart} = {}
+local _townHallTier = 0
+local _mayorAiRunning = false
+
 local WorldService = {}
 
 local function randXZ(rng: Random, minDist: number, maxDist: number, yHeight: number): Vector3
@@ -201,17 +206,17 @@ local function spawnFirepit(center: Vector3, tier: number)
     local function mkLog(sz: Vector3, cf: CFrame)
         local p = Instance.new("Part"); p.Name = "Log"
         p.Size = sz; p.BrickColor = logCol; p.Material = Enum.Material.Wood
-        p.Anchored = true; p.CanCollide = true; p.CFrame = cf; p.Parent = model
+        p.Anchored = true; p.CanCollide = false; p.CFrame = cf; p.Parent = model
     end
     local function mkStone(sz: Vector3, cf: CFrame)
         local p = Instance.new("Part"); p.Name = "Stone"
         p.Size = sz; p.BrickColor = stoneCol; p.Material = Enum.Material.Cobblestone
-        p.Anchored = true; p.CanCollide = true; p.CFrame = cf; p.Parent = model
+        p.Anchored = true; p.CanCollide = false; p.CFrame = cf; p.Parent = model
     end
     local function mkBase(sz: Vector3, pos: Vector3, col: BrickColor, mat: Enum.Material): BasePart
         local p = Instance.new("Part"); p.Name = "FireBase"
         p.Size = sz; p.BrickColor = col; p.Material = mat
-        p.Anchored = true; p.CanCollide = true; p.Position = pos; p.Parent = model
+        p.Anchored = true; p.CanCollide = false; p.Position = pos; p.Parent = model
         return p
     end
     -- N logs radiating from center, length `len`, diameter `dia`, at height y, rotated by `off`
@@ -318,8 +323,511 @@ local function spawnFirepit(center: Vector3, tier: number)
     end
 
     fire.Parent = firePart
+
+    -- Tier 1+ fires are solid — players and NPCs can no longer walk through them.
+    if tier >= 1 then
+        for _, part in ipairs(model:GetDescendants()) do
+            if part:IsA("BasePart") and part ~= firePart then
+                part.CanCollide = true
+            end
+        end
+    end
+
     label(firePart, "FirePit Lvl " .. tier)
     model.Parent = workspace
+end
+
+-- Spawns (or rebuilds) the tower visual for tiers 0-6.
+-- `anchor` is the BasePart in workspace that NpcService tracks for attributes.
+-- Visual geometry lives in a sibling Model named anchor.Name.."_Vis".
+-- Tier 0 = dirt patch marker; tier 1 = earthen mound; tiers 2-6 = progressively
+-- taller/stonier fortifications.
+local function spawnTower(anchor: BasePart, tier: number)
+    local visName = anchor.Name .. "_Vis"
+    local old = workspace:FindFirstChild(visName)
+    if old then old:Destroy() end
+
+    -- Reset anchor to a clean ground-level invisible pin; NpcService still finds it
+    anchor.Position    = Vector3.new(anchor.Position.X, 0, anchor.Position.Z)
+    anchor.Size        = Vector3.new(1, 0.1, 1)
+    anchor.Transparency = 1
+    anchor.CanCollide  = false
+
+    if tier == 0 then
+        anchor.Size        = Vector3.new(6, 0.3, 6)
+        anchor.BrickColor  = BrickColor.new("Sand yellow brown")
+        anchor.Material    = Enum.Material.Ground
+        anchor.Transparency = 0.3
+        anchor:SetAttribute("MaxOccupants", 0)
+        return
+    end
+
+    local model = Instance.new("Model")
+    model.Name  = visName
+
+    local cf       = anchor.CFrame  -- LookVector points toward town center
+    local woodCol  = BrickColor.new("Reddish brown")
+    local darkWood = BrickColor.new("Dark orange")
+    local stoneCol = BrickColor.new("Medium stone grey")
+
+    local function mk(nm: string, sz: Vector3, lx: number, ly: number, lz: number, col: BrickColor, mat: Enum.Material?)
+        local p = Instance.new("Part")
+        p.Name           = nm
+        p.Size           = sz
+        p.BrickColor     = col
+        p.Material       = mat or Enum.Material.Wood
+        p.Anchored       = true
+        p.CanCollide     = true
+        p.CollisionGroup = "Defense"
+        p.CFrame         = cf * CFrame.new(lx, ly, lz)
+        p.Parent         = model
+    end
+
+    if tier == 1 then
+        -- Earthen mound, 1 archer exposed on top
+        mk("Base",     Vector3.new(8,   0.3, 8),    0,  0.15,  0, BrickColor.new("Sand yellow"), Enum.Material.Ground)
+        mk("Mound",    Vector3.new(5,   2.5, 5),    0,  1.5,   0, woodCol, Enum.Material.SmoothPlastic)
+        mk("Platform", Vector3.new(4.5, 0.4, 4.5),  0,  2.95,  0, woodCol, Enum.Material.SmoothPlastic)
+        anchor:SetAttribute("MaxOccupants", 1)
+        anchor:SetAttribute("ArcherY", 3.5)
+
+    elseif tier == 2 then
+        -- Wooden palisade: 3 solid walls + short front parapet; archer protected
+        mk("Base",      Vector3.new(8.5, 0.5, 8.5),  0,    0.25,  0,    woodCol, Enum.Material.SmoothPlastic)
+        mk("BackWall",  Vector3.new(8.5, 9,   1.2),  0,    5,     3.6,  woodCol)
+        mk("LeftWall",  Vector3.new(1.2, 9,   7.2), -3.6,  5,     0,    woodCol)
+        mk("RightWall", Vector3.new(1.2, 9,   7.2),  3.6,  5,     0,    woodCol)
+        mk("FrontWall", Vector3.new(8.5, 4,   1.2),  0,    2.25, -3.6,  woodCol)
+        mk("Platform",  Vector3.new(6,   0.5, 6),    0,    9.25,  0,    woodCol)
+        anchor:SetAttribute("MaxOccupants", 1)
+        anchor:SetAttribute("ArcherY", 10)
+
+    elseif tier == 3 then
+        -- Taller palisade with overhang roof, 2 archers
+        mk("Base",      Vector3.new(9.5,  0.5,  9.5),   0,     0.25,  0,     woodCol, Enum.Material.SmoothPlastic)
+        mk("BackWall",  Vector3.new(9.5,  11,   1.5),   0,     6,     4.25,  woodCol)
+        mk("LeftWall",  Vector3.new(1.5,  11,   8.5),  -4.25,  6,     0,     woodCol)
+        mk("RightWall", Vector3.new(1.5,  11,   8.5),   4.25,  6,     0,     woodCol)
+        mk("FrontWall", Vector3.new(9.5,  5,    1.5),   0,     3,    -4.25,  woodCol)
+        mk("Platform",  Vector3.new(8,    0.6,  7.5),   0,    11.55,  0,     woodCol)
+        mk("Roof",      Vector3.new(10.5, 0.7,  10.5),  0,    12.25,  0,     darkWood)
+        anchor:SetAttribute("MaxOccupants", 2)
+        anchor:SetAttribute("ArcherY", 12.5)
+
+    elseif tier == 4 then
+        -- 2-story pyramid: wide lower level (2 archers) + narrow upper (1 archer)
+        mk("Base",       Vector3.new(12.5, 0.6,  12.5),  0,      0.3,    0,      woodCol, Enum.Material.SmoothPlastic)
+        mk("LowerBack",  Vector3.new(11,   7,    1.5),   0,      4,      5,      woodCol)
+        mk("LowerLeft",  Vector3.new(1.5,  7,    10),   -5,      4,      0,      woodCol)
+        mk("LowerRight", Vector3.new(1.5,  7,    10),    5,      4,      0,      woodCol)
+        mk("LowerFront", Vector3.new(11,   3,    1.5),   0,      2,     -5,      woodCol)
+        mk("LowerPlat",  Vector3.new(10,   0.6,  9.5),   0.25,   7.55,   0.25,   woodCol)
+        mk("UpperBack",  Vector3.new(7,    6,    1.5),   0,     11.5,    2.5,    darkWood)
+        mk("UpperLeft",  Vector3.new(1.5,  6,    5.5),  -2.75, 11.5,    0.5,    darkWood)
+        mk("UpperRight", Vector3.new(1.5,  6,    5.5),   2.75, 11.5,    0.5,    darkWood)
+        mk("UpperFront", Vector3.new(7,    3,    1.5),   0,     9.5,   -2.25,   darkWood)
+        mk("UpperPlat",  Vector3.new(6.5,  0.5,  5.5),   0,    14.55,   0.75,   darkWood)
+        anchor:SetAttribute("MaxOccupants", 3)
+        anchor:SetAttribute("ArcherY", 15)
+
+    elseif tier == 5 then
+        -- Watch tower: solid body, wide overhang platform, 3 archers same level
+        mk("Base",      Vector3.new(11.5, 0.8, 11.5),  0,    0.4,    0,    darkWood)
+        mk("BackWall",  Vector3.new(10,   13,  2),      0,    7,      4.5,  darkWood)
+        mk("LeftWall",  Vector3.new(2,    13,  9),     -4.5,  7,      0,    darkWood)
+        mk("RightWall", Vector3.new(2,    13,  9),      4.5,  7,      0,    darkWood)
+        mk("FrontWall", Vector3.new(10,   5.5, 2),      0,    3.5,   -4.5,  darkWood)
+        mk("TopPlat",   Vector3.new(12,   0.7, 12),     0,   13.85,   0,    darkWood)
+        mk("PostBL",    Vector3.new(1.5,  2.5, 1.5),   -5,   15.1,   5,    darkWood)
+        mk("PostBR",    Vector3.new(1.5,  2.5, 1.5),    5,   15.1,   5,    darkWood)
+        mk("PostFL",    Vector3.new(1.5,  2.5, 1.5),   -5,   15.1,  -4.5,  darkWood)
+        mk("PostFR",    Vector3.new(1.5,  2.5, 1.5),    5,   15.1,  -4.5,  darkWood)
+        anchor:SetAttribute("MaxOccupants", 3)
+        anchor:SetAttribute("ArcherY", 15)
+
+    else -- tier == 6: Stone Fortress
+        mk("Base",      Vector3.new(14, 1,    14),     0,     0.5,   0,    stoneCol, Enum.Material.Cobblestone)
+        mk("BackWall",  Vector3.new(12, 15,   2),      0,     8.5,   5.5,  stoneCol, Enum.Material.Cobblestone)
+        mk("LeftWall",  Vector3.new(2,  15,   11),    -5.5,   8.5,   0,    stoneCol, Enum.Material.Cobblestone)
+        mk("RightWall", Vector3.new(2,  15,   11),     5.5,   8.5,   0,    stoneCol, Enum.Material.Cobblestone)
+        mk("FrontWall", Vector3.new(12, 7,    2),      0,     4.5,  -5.5,  stoneCol, Enum.Material.Cobblestone)
+        mk("TopPlat",   Vector3.new(14, 0.8,  14),     0,    16.4,   0,    stoneCol, Enum.Material.Cobblestone)
+        for i = -2, 2 do
+            mk("MB"..i, Vector3.new(1.5, 2.5, 1.5), i * 2.4,  18,  5.5,  stoneCol, Enum.Material.Cobblestone)
+            mk("ML"..i, Vector3.new(1.5, 2.5, 1.5),    -5.5,  18,  i * 2, stoneCol, Enum.Material.Cobblestone)
+            mk("MR"..i, Vector3.new(1.5, 2.5, 1.5),     5.5,  18,  i * 2, stoneCol, Enum.Material.Cobblestone)
+        end
+        mk("MF1", Vector3.new(1.5, 2.5, 1.5), -4, 18, -5.5, stoneCol, Enum.Material.Cobblestone)
+        mk("MF2", Vector3.new(1.5, 2.5, 1.5),  0, 18, -5.5, stoneCol, Enum.Material.Cobblestone)
+        mk("MF3", Vector3.new(1.5, 2.5, 1.5),  4, 18, -5.5, stoneCol, Enum.Material.Cobblestone)
+        anchor:SetAttribute("MaxOccupants", 4)
+        anchor:SetAttribute("ArcherY", 17.5)
+    end
+
+    model.Parent = workspace
+end
+
+-- Town hall rebuilds in sync with firepit tier (1=tent … 6=grand hall).
+-- Tier 0 removes all town-hall visuals (and legacy mayor foundation plates).
+-- Build slot is SE of center. Parts are built in local space (front = -Z flat face),
+-- then the whole model is rotated so that face points at the firepit.
+local function spawnTownHall(tier: number)
+    if tier == 0 then
+        local existing = workspace:FindFirstChild("TownHallModel")
+        if existing then existing:Destroy() end
+        local legacyHall = workspace:FindFirstChild("TownHall")
+        if legacyHall and legacyHall:IsA("BasePart") then legacyHall:Destroy() end
+        local mayorPlate = workspace:FindFirstChild("MayorHouse_Foundation")
+        if mayorPlate then mayorPlate:Destroy() end
+        _shieldMounts = {}
+        _shieldVisuals = {}
+        _townHallTier = 0
+        return true
+    end
+
+    local model = Instance.new("Model")
+    model.Name  = "TownHallModel"
+    local base  = GameConfig.TOWN_CENTER_POS + GameConfig.TOWN_HALL_OFFSET
+    local GY    = 0
+
+    local toward = (GameConfig.TOWN_CENTER_POS - base).Unit
+    local worldCF = CFrame.lookAt(
+        Vector3.new(base.X, GY, base.Z),
+        Vector3.new(base.X + toward.X, GY, base.Z + toward.Z)
+    )
+
+    local woodCol    = BrickColor.new("Reddish brown")
+    local canvasCol  = BrickColor.new("Brick yellow")
+    local stoneCol   = BrickColor.new("Medium stone grey")
+    local lightStone = BrickColor.new("Light stone grey")
+    local roofCol    = BrickColor.new("Dark stone grey")
+    local trimCol    = BrickColor.new("Brown")
+    local accentCol  = BrickColor.new("Bright yellow")
+    local winCol     = BrickColor.new("Cyan")
+    local interiorCol = BrickColor.new("Pastel brown")
+
+    local newShieldMounts: {BasePart} = {}
+
+    local function place(name: string, sz: Vector3, localCF: CFrame, col: BrickColor, mat: Enum.Material?)
+        local p = Instance.new("Part")
+        p.Name = name; p.Size = sz; p.BrickColor = col
+        p.Material = mat or Enum.Material.SmoothPlastic
+        p.Anchored = true; p.CanCollide = true
+        p.CFrame = worldCF * localCF
+        p.Parent = model
+        return p
+    end
+
+    local function box(name: string, sx: number, sy: number, sz: number, lx: number, ly: number, lz: number, col: BrickColor, mat: Enum.Material?)
+        return place(name, Vector3.new(sx, sy, sz), CFrame.new(lx, ly, lz), col, mat)
+    end
+
+    local function onFloor(name: string, sx: number, sy: number, sz: number, lx: number, lz: number, col: BrickColor, mat: Enum.Material?)
+        box(name, sx, sy, sz, lx, sy * 0.5, lz, col, mat)
+    end
+
+    local function stackOn(name: string, sx: number, sy: number, sz: number, lx: number, lz: number, yBot: number, col: BrickColor, mat: Enum.Material?)
+        box(name, sx, sy, sz, lx, yBot + sy * 0.5, lz, col, mat)
+    end
+
+    local function addWindowGlow(part: BasePart)
+        part.Transparency = 0.25
+        part.Material = Enum.Material.Glass
+        local light = Instance.new("PointLight")
+        light.Brightness = 1.4
+        light.Range = 12
+        light.Color = Color3.fromRGB(255, 195, 110)
+        light.Parent = part
+    end
+
+    local function frontDoor(name: string, w: number, h: number, halfZ: number, yBot: number, col: BrickColor, th: number?)
+        local t = th or 0.25
+        box(name, w, h, t, 0, yBot + h * 0.5, -(halfZ + t * 0.5 + 0.08), col, Enum.Material.Wood)
+    end
+
+    local function frontSteps(w: number, d: number, h: number, edgeHalfZ: number, yBot: number, col: BrickColor, mat: Enum.Material?)
+        box("Steps", w, h, d, 0, yBot + h * 0.5, -(edgeHalfZ + d * 0.5), col, mat)
+    end
+
+    local function frontColumn(name: string, size: number, h: number, halfZ: number, yBot: number, xOff: number, col: BrickColor, mat: Enum.Material?)
+        box(name, size, h, size, xOff, yBot + h * 0.5, -(halfZ + size * 0.35), col, mat)
+    end
+
+    local function frontWallWithDoor(halfZ: number, yBot: number, wallH: number, wallW: number, doorW: number, doorH: number, wallTh: number, col: BrickColor, mat: Enum.Material?)
+        local z = -(halfZ - wallTh * 0.5)
+        local sideW = (wallW - doorW) * 0.5
+        box("WallFL", sideW, wallH, wallTh, -(doorW * 0.5 + sideW * 0.5), yBot + wallH * 0.5, z, col, mat)
+        box("WallFR", sideW, wallH, wallTh,  (doorW * 0.5 + sideW * 0.5), yBot + wallH * 0.5, z, col, mat)
+        local topH = wallH - doorH
+        if topH > 0.1 then
+            box("WallFTop", doorW, topH, wallTh, 0, yBot + doorH + topH * 0.5, z, col, mat)
+        end
+    end
+
+    local function frontWallSolid(halfZ: number, yBot: number, wallH: number, wallW: number, wallTh: number, col: BrickColor, mat: Enum.Material?)
+        box("WallFront", wallW, wallH, wallTh, 0, yBot + wallH * 0.5, -(halfZ - wallTh * 0.5), col, mat)
+    end
+
+    local function sideWallWithWindow(prefix: string, xWall: number, halfZ: number, yWin: number, hWin: number, wWin: number, wallTh: number, wallH: number, yBot: number, col: BrickColor, mat: Enum.Material?, lit: boolean?)
+        local halfGap = wWin * 0.5
+        local yLow, yHigh = yWin - hWin * 0.5, yWin + hWin * 0.5
+        local sign = xWall >= 0 and 1 or -1
+
+        local dFront = halfZ - halfGap
+        if dFront > 0.25 then
+            box(prefix .. "_F", wallTh, wallH, dFront, xWall, yBot + wallH * 0.5, -(halfZ - dFront * 0.5), col, mat)
+        end
+        local dBack = halfZ - halfGap
+        if dBack > 0.25 then
+            box(prefix .. "_B", wallTh, wallH, dBack, xWall, yBot + wallH * 0.5, halfGap + dBack * 0.5, col, mat)
+        end
+        local topH = (yBot + wallH) - yHigh
+        if topH > 0.12 then
+            box(prefix .. "_T", wallTh, topH, wWin, xWall, yHigh + topH * 0.5, 0, col, mat)
+        end
+        local botH = yLow - yBot
+        if botH > 0.12 then
+            box(prefix .. "_S", wallTh, botH, wWin, xWall, yBot + botH * 0.5, 0, col, mat)
+        end
+
+        local gx = xWall + sign * (wallTh * 0.5 + 0.08)
+        local glass = box(prefix .. "_Glass", 0.1, hWin, wWin, gx, yWin, 0, winCol, Enum.Material.Glass)
+        glass.Transparency = 0.08
+        box(prefix .. "_Fill", wallTh + 0.25, hWin - 0.08, wWin - 0.08, xWall, yWin, 0, interiorCol)
+        if lit then addWindowGlow(glass) end
+    end
+
+    local function frontWindowOpening(name: string, xOff: number, yCenter: number, halfZ: number, h: number, w: number, wallTh: number, col: BrickColor, mat: Enum.Material?, lit: boolean?)
+        local zWall = -(halfZ - wallTh * 0.5)
+        box(name .. "_Top", w, 0.35, wallTh, xOff, yCenter + h * 0.5 + 0.18, zWall, col, mat)
+        box(name .. "_Bot", w, 0.35, wallTh, xOff, yCenter - h * 0.5 - 0.18, zWall, col, mat)
+        local glass = box(name .. "_Glass", w, h, 0.1, xOff, yCenter, -(halfZ + 0.12), winCol, Enum.Material.Glass)
+        glass.Transparency = 0.08
+        box(name .. "_Fill", w - 0.08, h - 0.08, wallTh + 0.2, xOff, yCenter, -(halfZ - wallTh * 0.5), interiorCol)
+        if lit then addWindowGlow(glass) end
+    end
+
+    local function wedge(name: string, sz: Vector3, localCF: CFrame, col: BrickColor, mat: Enum.Material?)
+        local w = Instance.new("WedgePart")
+        w.Name = name; w.Size = sz; w.BrickColor = col
+        w.Material = mat or Enum.Material.SmoothPlastic
+        w.Anchored = true; w.CanCollide = true
+        w.CFrame = worldCF * localCF
+        w.Parent = model
+        return w
+    end
+
+    local function frontArch(doorW: number, halfZ: number, yBot: number, col: BrickColor)
+        local zFace = -(halfZ + 0.35)
+        local lintelY = yBot + 6.0
+        box("Lintel", doorW + 2.2, 0.7, 0.55, 0, lintelY, zFace, col, Enum.Material.Cobblestone)
+        wedge("ArchL", Vector3.new(1.1, 1.1, 0.55),
+            CFrame.new(-doorW * 0.5 - 0.55, yBot + 4.8, zFace) * CFrame.Angles(0, math.rad(90), math.rad(-90)),
+            col, Enum.Material.Cobblestone)
+        wedge("ArchR", Vector3.new(1.1, 1.1, 0.55),
+            CFrame.new( doorW * 0.5 + 0.55, yBot + 4.8, zFace) * CFrame.Angles(0, math.rad(-90), math.rad(90)),
+            col, Enum.Material.Cobblestone)
+        wedge("ArchKey", Vector3.new(1.0, 0.9, 0.55),
+            CFrame.new(0, lintelY + 0.35, zFace) * CFrame.Angles(math.rad(180), math.rad(90), 0),
+            col, Enum.Material.Cobblestone)
+    end
+
+    local function spawnKnightShieldMounts(halfZ: number, yBot: number, doorHalfW: number)
+        local xInner = doorHalfW + 1.15
+        local xOuter = doorHalfW + 2.55
+        local slotOffsets = { -xOuter, -xInner, xInner, xOuter }
+        for i, xOff in ipairs(slotOffsets) do
+            local mount = Instance.new("Part")
+            mount.Name = "KnightShieldMount"
+            mount.Size = Vector3.new(0.7, 1.5, 0.35)
+            mount.Transparency = 1
+            mount.CanCollide = false
+            mount.Anchored = true
+            mount.CFrame = worldCF * CFrame.new(xOff, yBot + 3.2, -(halfZ + 0.12))
+            mount:SetAttribute("SlotId", i)
+            mount:SetAttribute("HasShield", false)
+            mount:SetAttribute("HasBanner", false)
+            mount:SetAttribute("MountType", "KnightShield")
+            mount.Parent = model
+            table.insert(newShieldMounts, mount)
+        end
+    end
+
+    local anchor = Instance.new("Part")
+    anchor.Name = "TownHall"; anchor.Size = Vector3.new(1, 1, 1)
+    anchor.Transparency = 1; anchor.CanCollide = false
+    anchor.Anchored = true; anchor.Parent = model
+
+    local buildOk, buildErr = pcall(function()
+        if tier == 1 then
+            anchor.CFrame = worldCF * CFrame.new(0, 5, 0)
+            onFloor("Floor", 8, 0.15, 8, 0, 0, canvasCol)
+            for _, xz in { {3.5, 3.5}, {-3.5, 3.5}, {3.5, -3.5}, {-3.5, -3.5} } do
+                onFloor("Pole", 0.3, 5.5, 0.3, xz[1], xz[2], trimCol, Enum.Material.Wood)
+            end
+            box("WallE", 0.12, 4.5, 7.5, 3.75, 2.25, 0, canvasCol)
+            box("WallBack", 7.5, 4.5, 0.12, 0, 2.25, 3.75, canvasCol)
+            wedge("RoofL", Vector3.new(8.5, 2.5, 5), CFrame.new(-2.2, 6.2, 0) * CFrame.Angles(0, math.rad(45), 0), canvasCol)
+            wedge("RoofR", Vector3.new(8.5, 2.5, 5), CFrame.new( 2.2, 6.2, 0) * CFrame.Angles(0, math.rad(-135), 0), canvasCol)
+            onFloor("FlagPole", 0.15, 7, 0.15, 0, -3.5, trimCol, Enum.Material.Wood)
+            stackOn("SleepingBag", 2.2, 0.12, 1.4, -1.2, 1.2, 0.15, BrickColor.new("Bright green"))
+            stackOn("SleepingBagPillow", 0.55, 0.18, 0.45, -0.5, 1.2, 0.28, BrickColor.new("Earth green"))
+
+        elseif tier == 2 then
+            local halfZ = 4.5
+            local yBot = 0.35
+            local wallH = 5.5
+            local wallTh = 0.55
+            anchor.CFrame = worldCF * CFrame.new(0, 4.5, 0)
+            onFloor("Sill", 10, 0.35, 9, 0, 0, woodCol, Enum.Material.Wood)
+            frontWallSolid(halfZ, yBot, wallH, 6.4, wallTh, woodCol, Enum.Material.Wood)
+            box("WallBack", 10, wallH, wallTh, 0, yBot + wallH * 0.5, halfZ - wallTh * 0.5, woodCol, Enum.Material.Wood)
+            sideWallWithWindow("WinE", 4.75, halfZ - 0.05, yBot + 3.2, 2.2, 1.8, wallTh, wallH, yBot, woodCol, Enum.Material.Wood, false)
+            sideWallWithWindow("WinW", -4.75, halfZ - 0.05, yBot + 3.2, 2.2, 1.8, wallTh, wallH, yBot, woodCol, Enum.Material.Wood, false)
+            box("InnerE", 0.1, wallH - 0.4, 8.2, 4.75 - wallTh + 0.08, yBot + wallH * 0.5, 0, interiorCol)
+            box("InnerW", 0.1, wallH - 0.4, 8.2, -4.75 + wallTh - 0.08, yBot + wallH * 0.5, 0, interiorCol)
+            box("InnerBack", 8.2, wallH - 0.4, 0.1, 0, yBot + wallH * 0.5, 4.2 - wallTh + 0.08, interiorCol)
+            stackOn("BedFrame", 2.2, 0.45, 3, 2.6, 2.2, yBot, trimCol, Enum.Material.Wood)
+            stackOn("Mattress", 2, 0.35, 2.6, 2.6, 2.2, yBot + 0.45, BrickColor.new("White"))
+            stackOn("Pillow", 0.65, 0.18, 0.45, 3.35, 2.2, yBot + 0.98, BrickColor.new("White"))
+            stackOn("RoofFront", 11, 0.8, 5, 0, -2.2, yBot + wallH, roofCol, Enum.Material.Wood)
+            stackOn("RoofBack",  11, 0.8, 5, 0,  2.2, yBot + wallH, roofCol, Enum.Material.Wood)
+            stackOn("Chimney", 1, 3.5, 1, 2.5, 2, yBot + wallH, stoneCol, Enum.Material.Cobblestone)
+
+        elseif tier == 3 then
+            local halfZ = 4.75
+            local halfX = 4.75
+            local wallTh = 0.65
+            local yBot = 0.8
+            local bodyH = 7
+            local porchDepth = 2.5
+            local foundationHalfZ = 5.5
+            anchor.CFrame = worldCF * CFrame.new(0, 6.5, 0)
+            onFloor("Foundation", 11, 0.8, 11, 0, 0, stoneCol, Enum.Material.Cobblestone)
+            onFloor("PorchDeck", 5.5, 0.8, porchDepth, 0, -(foundationHalfZ + porchDepth * 0.5), lightStone, Enum.Material.Cobblestone)
+            frontSteps(5.5, porchDepth, 0.8, foundationHalfZ + porchDepth, 0, lightStone, Enum.Material.Cobblestone)
+            stackOn("Interior", 9.5 - wallTh * 2, bodyH - wallTh, 9.5 - wallTh * 2, 0, 0, yBot + wallTh * 0.5, interiorCol)
+            frontWallWithDoor(halfZ, yBot, bodyH, 9.5, 2.5, 4.5, wallTh, stoneCol, Enum.Material.Cobblestone)
+            frontDoor("Door", 2.5, 4.5, halfZ, yBot, trimCol, 0.25)
+            sideWallWithWindow("WinE", halfX, halfZ, yBot + 3.5, 2.5, 2, wallTh, bodyH, yBot, stoneCol, Enum.Material.Cobblestone, false)
+            sideWallWithWindow("WinW", -halfX, halfZ, yBot + 3.5, 2.5, 2, wallTh, bodyH, yBot, stoneCol, Enum.Material.Cobblestone, false)
+            box("WallBack", 9.5, bodyH, wallTh, 0, yBot + bodyH * 0.5, halfZ - wallTh * 0.5, stoneCol, Enum.Material.Cobblestone)
+            frontWindowOpening("WinFL", -2.2, yBot + 5.5, halfZ, 1.4, 1.8, wallTh, stoneCol, Enum.Material.Cobblestone, false)
+            frontWindowOpening("WinFR",  2.2, yBot + 5.5, halfZ, 1.4, 1.8, wallTh, stoneCol, Enum.Material.Cobblestone, false)
+            stackOn("Band", 9.8, 0.5, 9.8, 0, 0, yBot + bodyH, lightStone, Enum.Material.Cobblestone)
+            stackOn("Roof", 11.5, 1.2, 11.5, 0, 0, yBot + bodyH + 0.25, roofCol)
+
+        elseif tier == 4 then
+            local halfZ = 5.25
+            local halfX = 5.25
+            local wallTh = 0.65
+            local yBot = 1.0
+            local bodyH = 9
+            local porchDepth = 2.5
+            local plinthHalfZ = 6
+            anchor.CFrame = worldCF * CFrame.new(0, 8, 0)
+            onFloor("Plinth", 12, 1, 12, 0, 0, stoneCol, Enum.Material.Cobblestone)
+            onFloor("PorchDeck", 6, 1, porchDepth, 0, -(plinthHalfZ + porchDepth * 0.5), lightStone, Enum.Material.Cobblestone)
+            frontSteps(6, porchDepth, 1, plinthHalfZ + porchDepth, 0, lightStone, Enum.Material.Cobblestone)
+            stackOn("Interior", 10.5 - wallTh * 2, bodyH - wallTh, 10.5 - wallTh * 2, 0, 0, yBot + wallTh * 0.5, interiorCol)
+            frontWallWithDoor(halfZ, yBot, bodyH, 10.5, 3, 5.5, wallTh, stoneCol, Enum.Material.Cobblestone)
+            frontColumn("ColumnL", 1.2, 8, halfZ, yBot, -2.5, lightStone, Enum.Material.Cobblestone)
+            frontColumn("ColumnR", 1.2, 8, halfZ, yBot,  2.5, lightStone, Enum.Material.Cobblestone)
+            frontDoor("Door", 3, 5.5, halfZ, yBot, trimCol, 0.25)
+            frontArch(3, halfZ, yBot, lightStone)
+            sideWallWithWindow("WinE", halfX, halfZ, yBot + 4.5, 3, 2.2, wallTh, bodyH, yBot, stoneCol, Enum.Material.Cobblestone, true)
+            sideWallWithWindow("WinW", -halfX, halfZ, yBot + 4.5, 3, 2.2, wallTh, bodyH, yBot, stoneCol, Enum.Material.Cobblestone, true)
+            box("WallBack", 10.5, bodyH, wallTh, 0, yBot + bodyH * 0.5, halfZ - wallTh * 0.5, stoneCol, Enum.Material.Cobblestone)
+            frontWindowOpening("WinFL", -3.5, yBot + 6.5, halfZ, 1.6, 2, wallTh, stoneCol, Enum.Material.Cobblestone, true)
+            frontWindowOpening("WinFR",  3.5, yBot + 6.5, halfZ, 1.6, 2, wallTh, stoneCol, Enum.Material.Cobblestone, true)
+            stackOn("Frieze", 10.8, 0.6, 10.8, 0, 0, yBot + bodyH, lightStone, Enum.Material.Cobblestone)
+            stackOn("Roof", 12.5, 1.4, 12.5, 0, 0, yBot + bodyH + 0.3, roofCol)
+
+        elseif tier == 5 then
+            local halfZ = 5.5
+            local halfX = 5.5
+            local wallTh = 0.65
+            local yBot = 1.0
+            local lowerH = 8
+            local porchDepth = 2.8
+            anchor.CFrame = worldCF * CFrame.new(0, 10, 0)
+            onFloor("Plinth", 13, 1, 13, 0, 0, stoneCol, Enum.Material.Cobblestone)
+            onFloor("PorchDeck", 7, 1, porchDepth, 0, -(halfZ + porchDepth * 0.5), lightStone, Enum.Material.Cobblestone)
+            frontSteps(7, porchDepth, 1, halfZ + porchDepth, 0, lightStone, Enum.Material.Cobblestone)
+            stackOn("Interior", 11 - wallTh * 2, lowerH - wallTh, 11 - wallTh * 2, 0, 0, yBot + wallTh * 0.5, interiorCol)
+            frontWallWithDoor(halfZ, yBot, lowerH, 11, 3.2, 6, wallTh, stoneCol, Enum.Material.Cobblestone)
+            frontDoor("Door", 3.2, 6, halfZ, yBot, trimCol, 0.25)
+            sideWallWithWindow("WinE1", halfX, halfZ, yBot + 3, 2.5, 2, wallTh, lowerH, yBot, stoneCol, Enum.Material.Cobblestone, false)
+            sideWallWithWindow("WinE2", halfX, halfZ, yBot + 6.5, 2.5, 2, wallTh, lowerH, yBot, stoneCol, Enum.Material.Cobblestone, true)
+            sideWallWithWindow("WinW1", -halfX, halfZ, yBot + 3, 2.5, 2, wallTh, lowerH, yBot, stoneCol, Enum.Material.Cobblestone, false)
+            sideWallWithWindow("WinW2", -halfX, halfZ, yBot + 6.5, 2.5, 2, wallTh, lowerH, yBot, stoneCol, Enum.Material.Cobblestone, true)
+            box("WallBack", 11, lowerH, wallTh, 0, yBot + lowerH * 0.5, halfZ - wallTh * 0.5, stoneCol, Enum.Material.Cobblestone)
+            local upperH = 5
+            local upperYBot = yBot + lowerH
+            local upperHalfZ = 4.75
+            stackOn("UpperFloor", 9.5, 0.4, 9.5, 0, 0, upperYBot, lightStone, Enum.Material.Cobblestone)
+            stackOn("UpperInner", 8.2, upperH - 0.45, 8.2, 0, 0, upperYBot + 0.22, interiorCol)
+            box("UpperBack", 9.5, upperH, wallTh, 0, upperYBot + upperH * 0.5, upperHalfZ - wallTh * 0.5, lightStone, Enum.Material.Cobblestone)
+            box("UpperFrontL", 2.8, upperH, wallTh, -3.1, upperYBot + upperH * 0.5, -(upperHalfZ - wallTh * 0.5), lightStone, Enum.Material.Cobblestone)
+            box("UpperFrontR", 2.8, upperH, wallTh,  3.1, upperYBot + upperH * 0.5, -(upperHalfZ - wallTh * 0.5), lightStone, Enum.Material.Cobblestone)
+            stackOn("Roof", 13.5, 1.5, 13.5, 0, 0, upperYBot + upperH, roofCol)
+            stackOn("Tower", 4, 12, 4, 3.5, 3.5, yBot, stoneCol, Enum.Material.Cobblestone)
+            stackOn("TowerRoof", 4.8, 1.2, 4.8, 3.5, 3.5, yBot + 12, roofCol)
+            frontWindowOpening("WinFL", -2.5, yBot + lowerH + 2.5, 4.75, 1.8, 2, wallTh, lightStone, Enum.Material.Cobblestone, true)
+            frontWindowOpening("WinFR",  2.5, yBot + lowerH + 2.5, 4.75, 1.8, 2, wallTh, lightStone, Enum.Material.Cobblestone, true)
+
+        else -- tier 6
+            local halfZ = 6
+            local halfX = 6
+            local wallTh = 0.65
+            local yBot = 1.1
+            local lowerH = 9
+            local porchDepth = 3
+            anchor.CFrame = worldCF * CFrame.new(0, 11, 0)
+            onFloor("Plinth", 14, 1.1, 14, 0, 0, stoneCol, Enum.Material.Cobblestone)
+            onFloor("PorchDeck", 8, 1.1, porchDepth, 0, -(halfZ + porchDepth * 0.5), lightStone, Enum.Material.Cobblestone)
+            frontSteps(8, porchDepth, 1.1, halfZ + porchDepth, 0, lightStone, Enum.Material.Cobblestone)
+            stackOn("Interior", 12 - wallTh * 2, lowerH - wallTh, 12 - wallTh * 2, 0, 0, yBot + wallTh * 0.5, interiorCol)
+            frontWallWithDoor(halfZ, yBot, lowerH, 12, 3.5, 6.5, wallTh, stoneCol, Enum.Material.Cobblestone)
+            frontDoor("Door", 3.5, 6.5, halfZ, yBot, trimCol, 0.25)
+            sideWallWithWindow("WinE1", halfX, halfZ, yBot + 3.5, 2.8, 2.2, wallTh, lowerH, yBot, stoneCol, Enum.Material.Cobblestone, false)
+            sideWallWithWindow("WinE2", halfX, halfZ, yBot + 7.5, 2.8, 2.2, wallTh, lowerH, yBot, stoneCol, Enum.Material.Cobblestone, true)
+            sideWallWithWindow("WinW1", -halfX, halfZ, yBot + 3.5, 2.8, 2.2, wallTh, lowerH, yBot, stoneCol, Enum.Material.Cobblestone, false)
+            sideWallWithWindow("WinW2", -halfX, halfZ, yBot + 7.5, 2.8, 2.2, wallTh, lowerH, yBot, stoneCol, Enum.Material.Cobblestone, true)
+            box("WallBack", 12, lowerH, wallTh, 0, yBot + lowerH * 0.5, halfZ - wallTh * 0.5, stoneCol, Enum.Material.Cobblestone)
+            stackOn("Upper", 10.5, 6, 10.5, 0, 0, yBot + lowerH, lightStone, Enum.Material.Cobblestone)
+            stackOn("Cornice", 12.5, 0.7, 12.5, 0, 0, yBot + lowerH + 6, accentCol)
+            stackOn("Roof", 14.5, 1.6, 14.5, 0, 0, yBot + lowerH + 6.7, roofCol)
+            stackOn("BellTower", 4.5, 8, 4.5, 0, 0, yBot + lowerH + 7.5, stoneCol, Enum.Material.Cobblestone)
+            stackOn("Belfry", 5.2, 1.5, 5.2, 0, 0, yBot + lowerH + 12, roofCol)
+            stackOn("Spire", 1.2, 3, 1.2, 0, 0, yBot + lowerH + 14.35, accentCol)
+            frontWindowOpening("WinFL", -2.8, yBot + lowerH + 3, 5.25, 1.8, 2.2, wallTh, lightStone, Enum.Material.Cobblestone, true)
+            frontWindowOpening("WinFR",  2.8, yBot + lowerH + 3, 5.25, 1.8, 2.2, wallTh, lightStone, Enum.Material.Cobblestone, true)
+            spawnKnightShieldMounts(halfZ, yBot, 1.75)
+        end
+
+        anchor:SetAttribute("TownHallTier", tier)
+        label(anchor, "Town Hall Lvl " .. tier)
+    end)
+
+    if not buildOk then
+        model:Destroy()
+        warn("[WorldService] spawnTownHall tier", tier, "FAILED:", buildErr)
+        return false
+    end
+
+    local existing = workspace:FindFirstChild("TownHallModel")
+    if existing then existing:Destroy() end
+    local legacyHall = workspace:FindFirstChild("TownHall")
+    if legacyHall and legacyHall:IsA("BasePart") then legacyHall:Destroy() end
+    local mayorPlate = workspace:FindFirstChild("MayorHouse_Foundation")
+    if mayorPlate then mayorPlate:Destroy() end
+
+    _shieldMounts = newShieldMounts
+    _shieldVisuals = {}
+    _townHallTier = tier
+    model.Parent = workspace
+    return true
 end
 
 local function makeIslandBoundary(center: Vector3, radius: number)
@@ -521,7 +1029,7 @@ function WorldService.buildIsland(islandIdx: number?)
             Vector3.new(-19, 0, -33),  -- FarmerShop  NW-arc 240°
             Vector3.new( 19, 0, -33),  -- BowShop     NE-arc 300°
             Vector3.new( 33, 0, -20),  -- BombShop    NE-arc 330°
-            Vector3.new( 24, 0,  24),  -- TownHall    SE
+            GameConfig.TOWN_HALL_OFFSET,  -- TownHall SE slot
         } do
             table.insert(structureSpots, center + off)
         end
@@ -854,6 +1362,94 @@ function WorldService.getShopsWithTools(): {BasePart}
     return list
 end
 
+local function replaceMountWithBanner(mount: BasePart)
+    local banner = Instance.new("Part")
+    banner.Name = "KnightBanner"
+    banner.Size = Vector3.new(0.9, 1.4, 0.12)
+    banner.BrickColor = BrickColor.new("Bright red")
+    banner.Material = Enum.Material.Fabric
+    banner.Anchored = true
+    banner.CanCollide = false
+    banner.CFrame = mount.CFrame
+    banner.Parent = mount.Parent
+end
+
+function WorldService.getShieldMountsWithShields(): {BasePart}
+    local list = {}
+    for _, mount in _shieldMounts do
+        if mount.Parent and mount:GetAttribute("HasShield") then
+            table.insert(list, mount)
+        end
+    end
+    return list
+end
+
+function WorldService.getEmptyShieldMount(slotId: number): BasePart?
+    for _, mount in _shieldMounts do
+        if mount.Parent
+            and mount:GetAttribute("SlotId") == slotId
+            and not mount:GetAttribute("HasShield")
+            and not mount:GetAttribute("HasBanner") then
+            return mount
+        end
+    end
+    return nil
+end
+
+function WorldService.countOccupiedKnightSlots(): number
+    local n = 0
+    for _, mount in _shieldMounts do
+        if mount.Parent and (mount:GetAttribute("HasShield") or mount:GetAttribute("HasBanner")) then
+            n += 1
+        end
+    end
+    return n
+end
+
+function WorldService.countKnightShields(): number
+    local n = 0
+    for _, mount in _shieldMounts do
+        if mount.Parent and mount:GetAttribute("HasShield") then
+            n += 1
+        end
+    end
+    return n
+end
+
+function WorldService.addShieldToMount(mount: BasePart): boolean
+    if mount:GetAttribute("MountType") ~= "KnightShield" then return false end
+    if mount:GetAttribute("HasShield") or mount:GetAttribute("HasBanner") then return false end
+    if WorldService.countOccupiedKnightSlots() >= GameConfig.KNIGHT_MAX_SHIELDS then return false end
+
+    local shield = Instance.new("Part")
+    shield.Name = "Shield"
+    shield.Size = Vector3.new(1.35, 1.6, 0.22)
+    shield.BrickColor = BrickColor.new("Bright blue")
+    shield.Material = Enum.Material.Metal
+    shield.Anchored = true
+    shield.CanCollide = false
+    shield.CFrame = mount.CFrame
+    shield:SetAttribute("ToolType", "Shield")
+    shield.Parent = mount
+
+    mount:SetAttribute("HasShield", true)
+    _shieldVisuals[mount] = shield
+    return true
+end
+
+function WorldService.takeShieldFromMount(mount: BasePart): boolean
+    if mount:GetAttribute("MountType") ~= "KnightShield" then return false end
+    if not mount:GetAttribute("HasShield") then return false end
+
+    local visual = _shieldVisuals[mount]
+    if visual and visual.Parent then visual:Destroy() end
+    _shieldVisuals[mount] = nil
+    mount:SetAttribute("HasShield", false)
+    mount:SetAttribute("HasBanner", true)
+    replaceMountWithBanner(mount)
+    return true
+end
+
 -- ── Food ─────────────────────────────────────────────────────────────────
 
 local _foodParts: {BasePart} = {}
@@ -1078,16 +1674,9 @@ function WorldService.markStructureBuilt(inst: BasePart)
     inst.Name         = inst.Name:gsub("_Foundation", "")
     local structType  = inst:GetAttribute("StructureType")
     if structType == "Tower" then
-        -- 3× height and thickness: 9×12×9
-        inst.Size     = Vector3.new(9, 12, 9)
-        inst.Position = Vector3.new(inst.Position.X, 6, inst.Position.Z)
-        inst.CanCollide     = true
-        inst.BrickColor     = BrickColor.new("Reddish brown")
-        inst.Material       = Enum.Material.Wood
-        inst.CollisionGroup = "Defense"
-        inst:SetAttribute("Health",       GameConfig.BARRICADE_HEALTH * 2)
-        inst:SetAttribute("MaxHealth",    GameConfig.BARRICADE_HEALTH * 2)
-        inst:SetAttribute("MaxOccupants", 1)   -- one TowerArcher slot
+        inst:SetAttribute("Health",    GameConfig.BARRICADE_HEALTH * 2)
+        inst:SetAttribute("MaxHealth", GameConfig.BARRICADE_HEALTH * 2)
+        spawnTower(inst, 1)
     elseif structType == "Barricade" then
         -- Castle gate: two thick stone pillars + lintel; passage is open (friendly collision group passes through)
         local pillarH  = 9
@@ -1346,12 +1935,16 @@ function WorldService.spawnDevTown()
     ground.Position   = Vector3.new(center.X, -0.5, center.Z)
     ground.Parent     = workspace
 
-    -- Spawn just south of the firepit (pit half-size=4, spawn half-size=3, 1-stud gap)
-    if _spawn then _spawn.Position = center + Vector3.new(0, 1, 8) end
+    -- Spawn south of the firepit; pass-through so it doesn't block the dungeon-side approach
+    if _spawn then
+        _spawn.Position   = center + Vector3.new(0, 1, 8)
+        _spawn.CanCollide = false
+    end
 
-    -- Firepit starts at tier 0 so upgrade progression can be tested
-    print("[DevTown] step 1: firepit")
+    -- Firepit + town hall start at tier 0 so upgrade progression can be tested
+    print("[DevTown] step 1: firepit + town hall slot")
     spawnFirepit(center, 0)
+    spawnTownHall(0)  -- clears legacy mayor plate / static hall parts
 
     -- Tool shops — placed near their cardinal gates in dev mode (override production SW/NE diagonals)
     print("[DevTown] step 2: shops")
@@ -1387,20 +1980,8 @@ function WorldService.spawnDevTown()
     devShop("Farmer",  BrickColor.new("Bright green"),    Vector3.new(-19, 2, -33))  -- NW arc 240° (near N-tower)
     devShop("Bomb",    BrickColor.new("Dark stone grey"), Vector3.new( 33, 2, -20))  -- NE arc 330° (near E-tower)
 
-    -- Town Hall
-    print("[DevTown] step 4: town hall")
-    local hall      = Instance.new("Part")
-    hall.Name       = "TownHall"
-    hall.Size       = Vector3.new(14, 10, 14)
-    hall.BrickColor = BrickColor.new("Medium stone grey")
-    hall.Anchored   = true
-    hall.CanCollide = true
-    hall.Position   = center + Vector3.new(24, 5, 24)  -- swapped with FarmerShop
-    hall.Parent     = workspace
-    label(hall, "Town Hall")
-
-    -- Cardinal defenses
-    print("[DevTown] step 5: cardinal defenses")
+    -- Cardinal defenses (town hall appears at SE slot when firepit upgrades)
+    print("[DevTown] step 4: cardinal defenses")
     WorldService.unlockCardinalDefenses()
     WorldService.autoCompleteTownStructures()
     for _, child in workspace:GetChildren() do
@@ -1411,13 +1992,13 @@ function WorldService.spawnDevTown()
     end
 
     -- Circular perimeter walls
-    print("[DevTown] step 6: perimeter walls")
+    print("[DevTown] step 5: perimeter walls")
     WorldService.spawnPerimeterWalls()
 
     -- 8 portals — all pulled 50 studs closer to center vs island edge (islandR=510 → edgeR=460)
     -- Portal numbering: 1=E  2=SE  3=S  4=SW  5=W  6=NW  7=N  8=in-front-of-1
     -- NE edge (old portal 8 spot) left open for crashed boat spawn
-    print("[DevTown] step 7: portals")
+    print("[DevTown] step 6: portals")
     local pi         = math.pi
     local cos, sin   = math.cos, math.sin
     local edgeR      = 410   -- edge portals pulled in another 50 (was 460)
@@ -1441,7 +2022,7 @@ function WorldService.spawnDevTown()
     end
 
     -- Guardian placeholder
-    print("[DevTown] step 8: guardian + dungeon")
+    print("[DevTown] step 7: guardian + dungeon")
     local guardian      = Instance.new("Part")
     guardian.Name       = "BigBreeder"
     guardian.Size       = Vector3.new(12, 20, 12)
@@ -1577,11 +2158,117 @@ function WorldService.spawnDevTown()
     label(dp, "Enter Dungeon")
 
     print("[WorldService] Dev town fully spawned")
+
+    -- Dev mayor for bank UI + dusk town-hall retreat testing
+    if not workspace:FindFirstChild("Mayor") then
+        local mayor = Instance.new("Model")
+        mayor.Name  = "Mayor"
+        local root  = Instance.new("Part")
+        root.Name   = "HumanoidRootPart"
+        root.Size   = Vector3.new(2, 3, 1)
+        root.BrickColor = BrickColor.new("Bright blue")
+        root.CanCollide = false
+        root.Position   = center + Vector3.new(-10, 1.5, -6)
+        root.Parent     = mayor
+        local hum = Instance.new("Humanoid")
+        hum.WalkSpeed = 6
+        hum.Parent = mayor
+        mayor.PrimaryPart = root
+        mayor.Parent = workspace
+        WorldService.startMayorAI(mayor)
+    end
 end
 
 -- Rebuilds the firepit at the new tier. Called by Bootstrap on each upgrade.
 function WorldService.upgradeFirepit(tier: number)
     spawnFirepit(GameConfig.TOWN_CENTER_POS, tier)
+end
+
+-- Rebuilds a single tower at the given tier. towerName matches the anchor BasePart
+-- name in workspace (e.g. "Tower_E", "Tower_S", "Tower_W", "Tower_N").
+function WorldService.upgradeTower(towerName: string, tier: number)
+    local anchor = workspace:FindFirstChild(towerName)
+    if anchor and anchor:IsA("BasePart") then
+        spawnTower(anchor, tier)
+    end
+end
+
+function WorldService.upgradeTownHall(tier: number): boolean
+    return spawnTownHall(tier)
+end
+
+function WorldService.getTownHallTier(): number
+    return _townHallTier
+end
+
+function WorldService.getTownHallEntryPos(): Vector3?
+    if _townHallTier < 1 then return nil end
+    local model = workspace:FindFirstChild("TownHallModel")
+    local anchor = model and model:FindFirstChild("TownHall")
+    if anchor and anchor:IsA("BasePart") then
+        return anchor.Position + Vector3.new(0, -1.5, 0)
+    end
+    return GameConfig.TOWN_CENTER_POS + GameConfig.TOWN_HALL_OFFSET + Vector3.new(0, 2, 0)
+end
+
+function WorldService.getTownHallExclusion(): (Vector3?, number?)
+    if _townHallTier < 1 then return nil, nil end
+    local entry = WorldService.getTownHallEntryPos()
+    if not entry then return nil, nil end
+    local radius = _townHallTier == 1 and 5 or 7
+    return entry, radius
+end
+
+function WorldService.startMayorAI(mayor: Model)
+    if _mayorAiRunning then return end
+    _mayorAiRunning = true
+    task.spawn(function()
+        while mayor.Parent do
+            task.wait(math.random(8, 14))
+            if not mayor.Parent then break end
+            local humanoid = mayor:FindFirstChildOfClass("Humanoid")
+            if not humanoid then continue end
+            local town = GameConfig.TOWN_CENTER_POS
+            local hallCenter, hallRadius = WorldService.getTownHallExclusion()
+            for _ = 1, 10 do
+                local angle = math.random() * 2 * math.pi
+                local dist  = math.random() * (GameConfig.TOWN_RADIUS * 0.65)
+                local target = town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+                if hallCenter and hallRadius then
+                    local flat = Vector3.new(target.X - hallCenter.X, 0, target.Z - hallCenter.Z)
+                    if flat.Magnitude < hallRadius + 2 then continue end
+                end
+                local firePos = GameConfig.TOWN_CENTER_POS + Vector3.new(0, 0, 4)
+                if (target - firePos).Magnitude < 5 then continue end
+                humanoid:MoveTo(target)
+                break
+            end
+        end
+        _mayorAiRunning = false
+    end)
+end
+
+function WorldService.retreatMayorToTownHall()
+    local mayor = workspace:FindFirstChild("Mayor")
+    if not mayor or not mayor:IsA("Model") then return end
+    local root = mayor.PrimaryPart
+    local entry = WorldService.getTownHallEntryPos()
+    if root and entry and _townHallTier >= 1 then
+        root.CFrame = CFrame.new(entry)
+        print("[WorldService] Mayor inside town hall (tier", _townHallTier, ")")
+    end
+end
+
+function WorldService.releaseMayorFromTownHall()
+    local mayor = workspace:FindFirstChild("Mayor")
+    if not mayor or not mayor:IsA("Model") then return end
+    local root = mayor.PrimaryPart
+    local entry = WorldService.getTownHallEntryPos()
+    if not root or not entry or _townHallTier < 1 then return end
+    local outward = (GameConfig.TOWN_CENTER_POS - entry)
+    outward = Vector3.new(outward.X, 0, outward.Z)
+    if outward.Magnitude < 1 then outward = Vector3.new(-1, 0, -1) end
+    root.CFrame = CFrame.new(entry + outward.Unit * 10 + Vector3.new(0, 2, 0))
 end
 
 return WorldService

@@ -17,6 +17,7 @@ end
 
 -- Tower occupancy registry: tower BasePart → occupying npc id
 local _towerSlots: {[BasePart]: string} = {}
+local _townHallMayorOnly = false
 
 -- NPC registry: id → NpcData
 type NpcData = {
@@ -36,11 +37,13 @@ local COLOR_HOMELESS = BrickColor.new("Medium stone grey")
 local COLOR_JOBLESS  = BrickColor.new("Bright yellow")
 local COLOR_WORKER   = BrickColor.new("Reddish brown")
 local COLOR_HUNTER   = BrickColor.new("Bright green")
+local COLOR_KNIGHT   = BrickColor.new("Light blue")
 
 -- Maps rack tool type → profession name
 local TOOL_TO_PROFESSION: {[string]: string} = {
     Hammer = "Builder",
     Bow    = "Hunter",
+    Shield = "Knight",
 }
 
 -- ── helpers ──────────────────────────────────────────────────────────────
@@ -85,6 +88,13 @@ local function setNpcSpeed(npc: NpcData, speed: number)
 end
 
 local function moveNpcTo(npc: NpcData, target: Vector3)
+    local center, radius = WorldService.getTownHallExclusion()
+    if center and radius and _townHallMayorOnly then
+        local flat = Vector3.new(target.X - center.X, 0, target.Z - center.Z)
+        if flat.Magnitude < radius then
+            target = center + flat.Unit * (radius + 2) + Vector3.new(0, target.Y - center.Y, 0)
+        end
+    end
     local humanoid = npc.instance:FindFirstChildOfClass("Humanoid")
     if humanoid then humanoid:MoveTo(target) end
 end
@@ -648,7 +658,8 @@ local function startHunterLoop(npc: NpcData)
                 end
                 -- Shoot nearest animal in range, ~2s cadence
                 if tick() - lastArcherShot >= 2 then
-                    local towerPos  = occupiedTower.Position + Vector3.new(0, 2, 0)
+                    local archerY   = occupiedTower:GetAttribute("ArcherY") or 2
+                local towerPos  = occupiedTower.Position + Vector3.new(0, archerY, 0)
                     local AnimalSvc = getAnimalService()
                     local nearest: any = nil
                     local nearestDist  = GameConfig.HUNTER_SHOOT_RANGE
@@ -788,12 +799,34 @@ local function startHunterLoop(npc: NpcData)
     end)
 end
 
+local function startKnightLoop(npc: NpcData)
+    npc.profession = "Knight"
+    npc.maxPurse   = GameConfig.BUILDER_PURSE_MAX
+    npc.state      = "Working"
+    setNpcColor(npc, COLOR_KNIGHT)
+
+    task.spawn(function()
+        while npc.instance.Parent do
+            task.wait(2)
+            if not npc.instance.Parent then break end
+            if npc.state ~= "Working" then continue end
+            setNpcSpeed(npc, GameConfig.NPC_WANDER_SPEED)
+            local town  = WorldService.getTownCenterPos()
+            local angle = math.random() * 2 * math.pi
+            local dist  = GameConfig.TOWN_RADIUS * (0.35 + math.random() * 0.35)
+            moveNpcTo(npc, town + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
+            task.wait(4)
+        end
+    end)
+end
+
 local function fetchTool(npc: NpcData)
     local myPos = getNpcPosition(npc)
     local town  = WorldService.getTownCenterPos()
 
     -- Priority 1: shop racks (player-stocked tools)
     local racks = WorldService.getShopsWithTools()
+    local shields = WorldService.getShieldMountsWithShields()
 
     -- Priority 2: dropped tools on the ground within town (from worker-hit mechanic)
     local groundTools = {}
@@ -803,7 +836,7 @@ local function fetchTool(npc: NpcData)
         end
     end
 
-    if #racks == 0 and #groundTools == 0 then return end
+    if #racks == 0 and #shields == 0 and #groundTools == 0 then return end
 
     -- Find nearest rack
     local nearestRack: BasePart? = nil
@@ -813,12 +846,49 @@ local function fetchTool(npc: NpcData)
         if d < nearestRackDist then nearestRackDist = d; nearestRack = r end
     end
 
+    -- Find nearest shield mount
+    local nearestShield: BasePart? = nil
+    local nearestShieldDist = math.huge
+    for _, s in shields do
+        local d = (s.Position - myPos).Magnitude
+        if d < nearestShieldDist then nearestShieldDist = d; nearestShield = s end
+    end
+
     -- Find nearest ground tool
     local nearestGround: { instance: BasePart, position: Vector3 }? = nil
     local nearestGroundDist = math.huge
     for _, t in groundTools do
         local d = (t.instance.Position - myPos).Magnitude
         if d < nearestGroundDist then nearestGroundDist = d; nearestGround = t end
+    end
+
+    -- Prefer nearest stocked supply (rack or shield mount)
+    local useShield = nearestShield
+        and (nearestRack == nil or nearestShieldDist <= nearestRackDist)
+        and (nearestGround == nil or nearestShieldDist <= nearestGroundDist)
+
+    if useShield and nearestShield then
+        npc.state = "FetchingTool"
+        setNpcSpeed(npc, GameConfig.NPC_RUN_SPEED)
+        moveNpcTo(npc, nearestShield.Position)
+        task.spawn(function()
+            for _ = 1, 30 do
+                task.wait(0.5)
+                if npc.state ~= "FetchingTool" then return end
+                if not nearestShield.Parent then NpcService.assignTool(npc) return end
+                if (getNpcPosition(npc) - nearestShield.Position).Magnitude < 8 then
+                    if not WorldService.takeShieldFromMount(nearestShield) then
+                        NpcService.assignTool(npc)
+                        return
+                    end
+                    startKnightLoop(npc)
+                    print("[NpcService] Jobless picked up shield → Knight")
+                    return
+                end
+            end
+            NpcService.assignTool(npc)
+        end)
+        return
     end
 
     -- Prefer rack (player-controlled supply); fall back to dropped ground tool
@@ -842,6 +912,8 @@ local function fetchTool(npc: NpcData)
                     local profession = TOOL_TO_PROFESSION[toolType] or "Builder"
                     if profession == "Hunter" then
                         startHunterLoop(npc)
+                    elseif profession == "Knight" then
+                        startKnightLoop(npc)
                     else
                         startWorkerLoop(npc)
                     end
@@ -895,6 +967,7 @@ function NpcService.assignTool(npc: NpcData)
 
             -- Tool check is FIRST — tools are priority #1 for idle jobless
             local hasTools = #WorldService.getShopsWithTools() > 0
+                or #WorldService.getShieldMountsWithShields() > 0
             if not hasTools then
                 for _, t in WorldService.getGroundTools() do
                     if (t.instance.Position - town).Magnitude <= GameConfig.TOWN_RADIUS then
@@ -1021,6 +1094,7 @@ task.delay(1, function()
 end)
 
 TimeService.onDusk(function()
+    _townHallMayorOnly = WorldService.getTownHallTier() >= 1
     local wallPos = GameConfig.TOWN_CENTER_POS
     -- Clear tower occupancy before state changes so slots reopen at dawn
     local occupiedTowers = {}
@@ -1038,6 +1112,7 @@ TimeService.onDusk(function()
 end)
 
 TimeService.onDawn(function(_day)
+    _townHallMayorOnly = false
     for _, npc in _npcs do
         if npc.profession == "Builder" then
             npc.state = "Working"

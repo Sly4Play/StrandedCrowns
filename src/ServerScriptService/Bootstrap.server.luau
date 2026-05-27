@@ -52,7 +52,7 @@ local Remotes = require(game:GetService("ReplicatedStorage").Shared.Remotes)
 local MayorService = (not GameConfig.DEV_MODE) and require(Services.MayorService) or nil
 
 if GameConfig.DEV_MODE then
-    -- Static Island 5 showcase — no mayor, no NPCs, no animals, no greed
+    -- Static Island 5 showcase — dev mayor + NPCs for town-hall/knight testing
     local ok, err = pcall(WorldService.spawnDevTown)
     if not ok then
         warn("[Bootstrap] spawnDevTown FAILED:", err)
@@ -63,7 +63,21 @@ if GameConfig.DEV_MODE then
             Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, firstCost)
         end)
         print("[Bootstrap] DEV_MODE — Island 5 town loaded (firepit tier 0)")
+
+        -- Cycle all 4 towers through tiers 2-6 so the 3D progression can be inspected.
+        -- Towers start at tier 1 (earthen mound) after autoCompleteTownStructures.
+        task.spawn(function()
+            local towerNames = {"Tower_E", "Tower_S", "Tower_W", "Tower_N"}
+            for tier = 2, 6 do
+                task.wait(12)
+                for _, name in towerNames do
+                    WorldService.upgradeTower(name, tier)
+                end
+                print("[DevTowers] All towers → tier", tier)
+            end
+        end)
     end
+    require(Services.NpcService)
 else
     WorldService.onMayorHouseBuilt(function()
         MayorService.buildTent(GameConfig.TOWN_CENTER_POS)
@@ -141,6 +155,28 @@ Remotes.BuyBow.OnServerInvoke = function(player: Player): boolean
     return true
 end
 
+Remotes.BuyKnightShield.OnServerInvoke = function(player: Player, slotId: number): boolean
+    if typeof(slotId) ~= "number" then return false end
+    local mount = WorldService.getEmptyShieldMount(slotId)
+    if not mount then return false end
+    if WorldService.countOccupiedKnightSlots() >= GameConfig.KNIGHT_MAX_SHIELDS then return false end
+    local char = player.Character
+    local root = char and char.PrimaryPart
+    if not root or (root.Position - mount.Position).Magnitude > GameConfig.HIRE_COIN_RADIUS + 4 then
+        return false
+    end
+    if not CoinService.spend(player.UserId, GameConfig.KNIGHT_SHIELD_COST) then
+        scatterCoinsOnFail(player, GameConfig.KNIGHT_SHIELD_COST)
+        return false
+    end
+    if not WorldService.addShieldToMount(mount) then
+        CoinService.award(player.UserId, GameConfig.KNIGHT_SHIELD_COST)
+        return false
+    end
+    print("[Bootstrap] Knight shield added to slot", slotId, "by", player.Name)
+    return true
+end
+
 Remotes.MarkTree.OnServerInvoke = function(player: Player, treeId: string): boolean
     if WorldService.getPlayerMarkCount(player.UserId) >= GameConfig.TREE_MAX_PLAYER_MARKS then
         -- No coin was spent; fire CoinChanged to correct the client's optimistic HUD decrement
@@ -184,9 +220,18 @@ Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
     _firepitBuilding = true
     _firepitLevel    = nextLevel
     WorldService.upgradeFirepit(_firepitLevel)
+    local hallOk = WorldService.upgradeTownHall(_firepitLevel)
+    if not hallOk then
+        warn("[Bootstrap] Town hall build failed at tier", _firepitLevel, "— rolling back")
+        _firepitLevel -= 1
+        WorldService.upgradeFirepit(_firepitLevel)
+        WorldService.upgradeTownHall(_firepitLevel)
+        _firepitBuilding = false
+        Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, costs[_firepitLevel + 1])
+        return false
+    end
 
     if _firepitLevel == 1 then WorldService.unlockCardinalDefenses() end
-    if _firepitLevel == 2 then WorldService.spawnMayorHouseFoundation() end
 
     local nextCost = costs[_firepitLevel + 1]
     Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nextCost)
@@ -268,3 +313,11 @@ Remotes.AttackPortal.OnServerInvoke = function(player: Player): number
     end
     return hp
 end
+
+TimeService.onDusk(function()
+    WorldService.retreatMayorToTownHall()
+end)
+
+TimeService.onDawn(function()
+    WorldService.releaseMayorFromTownHall()
+end)
