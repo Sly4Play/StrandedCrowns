@@ -1344,28 +1344,76 @@ function WorldService.spawnDevTown()
     boat.Parent         = workspace
     label(boat, "Broken Boat")
 
-    -- Dungeon: south edge — front (north) face at Z=470, south face flush with island edge Z=510
-    local dungeon       = Instance.new("Part")
-    dungeon.Name        = "Dungeon"
-    dungeon.Size        = Vector3.new(40, 20, 40)
-    dungeon.BrickColor  = BrickColor.new("Dark stone grey")
-    dungeon.Anchored    = true
-    dungeon.CanCollide  = true
-    dungeon.Position    = center + Vector3.new(0, 10, 440)  -- pulled 50 closer (was 490); front face Z=420
-    dungeon.Parent      = workspace
-    label(dungeon, "Dungeon")
+    -- Dungeon: mountain silhouette (center Z=440, base north face at Z=400)
+    local mtnZ = 440
+    local caveZ = mtnZ - 40  -- north face of base layer (80/2 = 40)
 
-    -- Dungeon entrance portal flush on north (town-facing) face at Z=420
-    local dp          = Instance.new("Part")
-    dp.Name           = "DungeonPortal"
-    dp.Size           = Vector3.new(10, 10, 1)
-    dp.BrickColor     = BrickColor.new("Bright blue")
-    dp.Material       = Enum.Material.Neon
-    dp.Transparency   = 0.3
-    dp.Anchored       = true
-    dp.CanCollide     = false
-    dp.Position       = center + Vector3.new(0, 5, 419.5)
-    dp.Parent         = workspace
+    local function mtnLayer(xz: number, h: number, yc: number, col: BrickColor, mat: Enum.Material)
+        local p          = Instance.new("Part")
+        p.Name           = "DungeonMountain"
+        p.Size           = Vector3.new(xz, h, xz)
+        p.BrickColor     = col
+        p.Material       = mat
+        p.Anchored       = true
+        p.CanCollide     = true
+        p.Position       = center + Vector3.new(0, yc, mtnZ)
+        p.Parent         = workspace
+        return p
+    end
+
+    local grey1 = BrickColor.new("Medium stone grey")
+    local grey2 = BrickColor.new("Light stone grey")
+    mtnLayer(80, 16,  8,   grey1, Enum.Material.Cobblestone)
+    mtnLayer(60, 14, 23,   grey1, Enum.Material.SmoothPlastic)
+    mtnLayer(40, 12, 36,   grey1, Enum.Material.SmoothPlastic)
+    mtnLayer(22, 10, 46,   grey2, Enum.Material.SmoothPlastic)
+    local peak = mtnLayer(10,  8, 54,   BrickColor.new("White"), Enum.Material.SmoothPlastic)
+    label(peak, "Dungeon Mountain")
+
+    -- Cave entrance on north face of mountain base
+    local darkGrey = BrickColor.new("Dark stone grey")
+    local function caveRock(sz: Vector3, off: Vector3)
+        local p          = Instance.new("Part")
+        p.Name           = "CaveRock"
+        p.Size           = sz
+        p.BrickColor     = darkGrey
+        p.Material       = Enum.Material.Cobblestone
+        p.Anchored       = true
+        p.CanCollide     = true
+        p.Position       = center + off
+        p.Parent         = workspace
+        return p
+    end
+
+    -- Flanking pillars and lintel form a rough cave arch
+    caveRock(Vector3.new(5, 14, 5), Vector3.new( -8,  7, caveZ - 2))  -- left pillar
+    caveRock(Vector3.new(5, 14, 5), Vector3.new(  8,  7, caveZ - 2))  -- right pillar
+    caveRock(Vector3.new(20, 5, 5), Vector3.new(  0, 15, caveZ - 2))  -- top arch
+    caveRock(Vector3.new( 4,  4, 4), Vector3.new( -8, 18, caveZ - 2))  -- top-left boulder
+    caveRock(Vector3.new( 4,  4, 4), Vector3.new(  8, 18, caveZ - 2))  -- top-right boulder
+
+    -- Cave void: black recess gives depth illusion
+    local void          = Instance.new("Part")
+    void.Name           = "CaveVoid"
+    void.Size           = Vector3.new(10, 10, 4)
+    void.BrickColor     = BrickColor.new("Really black")
+    void.Material       = Enum.Material.SmoothPlastic
+    void.Anchored       = true
+    void.CanCollide     = false
+    void.Position       = center + Vector3.new(0, 5, caveZ + 2)
+    void.Parent         = workspace
+
+    -- Cave portal glow (the actual transport trigger — dark indigo neon)
+    local dp            = Instance.new("Part")
+    dp.Name             = "DungeonPortal"
+    dp.Size             = Vector3.new(8, 8, 1)
+    dp.BrickColor       = BrickColor.new("Dark indigo")
+    dp.Material         = Enum.Material.Neon
+    dp.Transparency     = 0.35
+    dp.Anchored         = true
+    dp.CanCollide       = false
+    dp.Position         = center + Vector3.new(0, 5, caveZ - 0.5)
+    dp.Parent           = workspace
     label(dp, "Enter Dungeon")
 
     print("[WorldService] Dev town fully spawned")
