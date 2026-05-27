@@ -1334,7 +1334,7 @@ function WorldService.spawnDevTown()
     boat.Material       = Enum.Material.Wood
     boat.Anchored       = true
     boat.CanCollide     = true
-    boat.Position       = center + Vector3.new(0, 2, -405)
+    boat.Position       = center + Vector3.new(360, 2, -360)  -- NE island edge, between lighthouse (N) and portal 1 (E)
     boat:SetAttribute("Level",           0)
     boat:SetAttribute("Marked",          false)
     boat:SetAttribute("BuildProgress",   0)
