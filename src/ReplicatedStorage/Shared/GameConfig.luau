@@ -46,7 +46,7 @@ return {
 
     -- Town
     TOWN_RADIUS           = 44,
-    FIREPIT_UPGRADE_COSTS = {8, 10, 12, 14, 16},
+    FIREPIT_UPGRADE_COSTS = {8, 10, 12, 14, 16, 18},
 
     -- Vagrant camps
     CAMP_COUNT                = 4,

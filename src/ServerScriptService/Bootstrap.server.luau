@@ -41,6 +41,7 @@ local CoinService = require(Services.CoinService)
 
 local _firepitLevel    = 0
 local _island2Unlocked = false
+local _firepitBuilding = false   -- true while a 30-second upgrade is in progress
 
 local WorldService = require(Services.WorldService)
 WorldService.buildIsland(GameConfig.DEV_MODE and 5 or 1)
@@ -63,18 +64,6 @@ if GameConfig.DEV_MODE then
         end)
         print("[Bootstrap] DEV_MODE — Island 5 town loaded (firepit tier 0)")
     end
-    -- Award 20 coins to every player on join so upgrade testing is self-funding
-    local DEV_COINS = 20
-    local function awardDevCoins(player: Player)
-        task.wait(1)  -- wait for character + CoinService to initialise
-        local have = CoinService.getPurse(player.UserId)
-        if have < DEV_COINS then
-            CoinService.award(player.UserId, DEV_COINS - have)
-        end
-        Remotes.CoinChanged:FireClient(player, CoinService.getPurse(player.UserId))
-    end
-    _Players.PlayerAdded:Connect(awardDevCoins)
-    for _, p in _Players:GetPlayers() do task.spawn(awardDevCoins, p) end
 else
     WorldService.onMayorHouseBuilt(function()
         MayorService.buildTent(GameConfig.TOWN_CENTER_POS)
@@ -174,35 +163,41 @@ end
 
 -- _firepitLevel and _island2Unlocked declared above buildIsland()
 
+local DEV_UPGRADE_DELAY = 30  -- seconds builders take; real game uses half a day
+
 Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
+    if _firepitBuilding then return false end                          -- upgrade in progress
     local costs     = GameConfig.FIREPIT_UPGRADE_COSTS
     local nextLevel = _firepitLevel + 1
     if nextLevel > #costs then return false end
-    -- Levels 3 and 4 (costs[3]=12, costs[4]=14) locked until Island 2
-    if nextLevel >= 3 and not _island2Unlocked then return false end
-    local cost = costs[nextLevel]
-    if not CoinService.spend(player.UserId, cost) then
-        scatterCoinsOnFail(player, cost)
-        return false
+    -- Island-2 gate skipped in DEV_MODE (all tiers freely testable)
+    if not GameConfig.DEV_MODE and nextLevel >= 3 and not _island2Unlocked then return false end
+    -- Coins skipped in DEV_MODE (unlimited for testing); normal play spends them
+    if not GameConfig.DEV_MODE then
+        local cost = costs[nextLevel]
+        if not CoinService.spend(player.UserId, cost) then
+            scatterCoinsOnFail(player, cost)
+            return false
+        end
     end
-    _firepitLevel = nextLevel
+
+    _firepitBuilding = true
+    _firepitLevel    = nextLevel
     WorldService.upgradeFirepit(_firepitLevel)
-    if _firepitLevel == 1 then
-        WorldService.unlockCardinalDefenses()
-    end
-    if _firepitLevel == 2 then
-        WorldService.spawnMayorHouseFoundation()
-    end
-    -- In DEV_MODE refill the tester's purse back to 20 after each upgrade
-    if GameConfig.DEV_MODE then
-        local have = CoinService.getPurse(player.UserId)
-        local top  = 20
-        if have < top then CoinService.award(player.UserId, top - have) end
-        Remotes.CoinChanged:FireClient(player, CoinService.getPurse(player.UserId))
-    end
+
+    if _firepitLevel == 1 then WorldService.unlockCardinalDefenses() end
+    if _firepitLevel == 2 then WorldService.spawnMayorHouseFoundation() end
+
     local nextCost = costs[_firepitLevel + 1]
     Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nextCost)
-    print("[Bootstrap] Firepit upgraded to level", _firepitLevel, "by", player.Name)
+    print("[Bootstrap] Firepit upgrading to level", _firepitLevel, "— locked for", DEV_UPGRADE_DELAY, "s")
+
+    -- Release the lock after the delay (builders finish)
+    task.delay(DEV_UPGRADE_DELAY, function()
+        _firepitBuilding = false
+        print("[Bootstrap] Firepit upgrade complete — level", _firepitLevel, "ready")
+    end)
+
     return true
 end
 
