@@ -96,7 +96,7 @@ return {
     -- Structures
     STRUCTURE_BUILD_DURATION = 5,
     TOWER_BUILD_COST         = 3,   -- coins to unlock a tower marker (player F-hold); builder then completes it
-    TOWER_UPGRADE_COSTS      = {5, 8, 12, 16, 20},  -- tiers 2→3→4→5→6
+    TOWER_UPGRADE_COSTS      = {3, 5, 7, 9, 11, 13},  -- tiers 0→1→2→3→4→5→6
     BARRICADE_BUILD_COST     = 1,   -- coins to unlock a barricade marker; builder then completes it
     FARMING_BUILD_COST       = 4,   -- coins player must spend to establish a farming area
     TOWER_MAX_BUILDERS       = 2,

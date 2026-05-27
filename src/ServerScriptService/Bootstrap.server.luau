@@ -62,7 +62,13 @@ if GameConfig.DEV_MODE then
         task.defer(function()
             Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, firstCost)
         end)
-        print("[Bootstrap] DEV_MODE — Island 5 town loaded (firepit tier 0)")
+        -- Towers start at tier 0 (dirt patch) so the full visual progression is testable.
+        -- autoCompleteTownStructures already ran → reset each cardinal tower back to 0.
+        for _, name in {"Tower_E", "Tower_S", "Tower_W", "Tower_N"} do
+            WorldService.upgradeTower(name, 0)
+            _towerTiers[name] = 0
+        end
+        print("[Bootstrap] DEV_MODE — Island 5 town loaded (firepit tier 0, towers tier 0)")
     end
     require(Services.NpcService)
 else
@@ -233,15 +239,17 @@ Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
     return true
 end
 
--- Tower tiers tracked per anchor name (starts at 1 after autoComplete builds them)
-local _towerTiers: {[string]: number} = {}
+-- Tower tiers and 15-second build locks tracked per anchor name
+local _towerTiers:    {[string]: number}  = {}
+local _towerBuilding: {[string]: boolean} = {}
 
 Remotes.UpgradeTower.OnServerInvoke = function(player: Player, towerName: string): boolean
+    if _towerBuilding[towerName] then return false end   -- still cooling down
     local costs    = GameConfig.TOWER_UPGRADE_COSTS
-    local current  = _towerTiers[towerName] or 1
+    local current  = _towerTiers[towerName] or 0        -- starts at 0 (dirt patch)
     local nextTier = current + 1
-    if nextTier > 6 then return false end  -- already max
-    local costIdx  = nextTier - 1          -- costs[1]=tier2, costs[2]=tier3, …, costs[5]=tier6
+    if nextTier > 6 then return false end               -- already max
+    local costIdx  = current + 1                        -- costs[1]=3 for 0→1, costs[2]=5 for 1→2, …
     if not GameConfig.DEV_MODE then
         local cost = costs[costIdx]
         if not cost then return false end
@@ -250,11 +258,16 @@ Remotes.UpgradeTower.OnServerInvoke = function(player: Player, towerName: string
             return false
         end
     end
-    _towerTiers[towerName] = nextTier
+    _towerBuilding[towerName] = true
+    _towerTiers[towerName]    = nextTier
     WorldService.upgradeTower(towerName, nextTier)
-    local nextCost = costs[costIdx + 1]  -- nil when maxed
+    local nextCost = costs[costIdx + 1]   -- nil when maxed out at tier 6
     Remotes.TowerLevelChanged:FireAllClients(towerName, nextTier, nextCost)
-    print("[Bootstrap] Tower", towerName, "→ tier", nextTier)
+    print("[Bootstrap] Tower", towerName, "→ tier", nextTier, "| locked 15s")
+    task.delay(15, function()
+        _towerBuilding[towerName] = nil
+        print("[Bootstrap] Tower", towerName, "upgrade ready")
+    end)
     return true
 end
 

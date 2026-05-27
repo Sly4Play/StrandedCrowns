@@ -538,71 +538,58 @@ local function watchForPortals()
 end
 
 local function watchForTowers()
-    -- Tracks cost per tower so the bubble updates after each upgrade.
-    local _towerCosts: {[string]: number} = {}
+    -- Every time spawnTower fires on the server it sets UpgradeTier on the anchor.
+    -- That attribute replicates to the client and triggers onTierChanged, which
+    -- re-registers the interactive with the correct next-tier cost.
 
-    local function costForTower(anchor: BasePart): number?
-        local tier  = anchor:GetAttribute("Level") or 1
-        local costs = GameConfig.TOWER_UPGRADE_COSTS
-        local idx   = tier  -- tier 1→costs[1]=5, tier 2→costs[2]=8, …
-        return costs[idx]
-    end
+    local function onTierChanged(anchor: BasePart)
+        local tier = anchor:GetAttribute("UpgradeTier")
+        if tier == nil then return end
 
-    local function attachTower(anchor: BasePart)
-        if anchor:GetAttribute("StructureType") ~= "Tower" then return end
-        if (anchor:GetAttribute("Level") or 0) < 1 then return end
-        -- Avoid double-registering
-        for _, item in _interactives do
-            if item.part == anchor then return end
+        -- Clear any old interactive + bubble for this anchor
+        for i = #_interactives, 1, -1 do
+            if _interactives[i].part == anchor then table.remove(_interactives, i) end
         end
-        local cost = costForTower(anchor)
-        if not cost then return end  -- already maxed
-        _towerCosts[anchor.Name] = cost
-        attachCoinBubble(anchor, cost, 20)
-        register(anchor, cost, function(): boolean
+        local oldBubble = anchor:FindFirstChild("CoinBubble")
+        if oldBubble then oldBubble:Destroy() end
+
+        local nextCost = GameConfig.TOWER_UPGRADE_COSTS[tier + 1]  -- [1]=3 for 0→1, …, [6]=13 for 5→6
+        if not nextCost then return end  -- tier 6 max, no bubble needed
+
+        attachCoinBubble(anchor, nextCost, 20)
+        register(anchor, nextCost, function(): boolean
             return Remotes.UpgradeTower:InvokeServer(anchor.Name)
         end, nil, 15)
     end
 
-    -- Attach to towers already in workspace (built before this script runs)
-    for _, child in workspace:GetChildren() do
-        if child:IsA("BasePart") then
-            attachTower(child :: BasePart)
-        end
+    local function hookAnchor(child: Instance)
+        if not child:IsA("BasePart") then return end
+        local anchor = child :: BasePart
+        if anchor:GetAttribute("StructureType") ~= "Tower" then return end
+        -- React now if UpgradeTier already replicated, and on every future change
+        onTierChanged(anchor)
+        anchor:GetAttributeChangedSignal("UpgradeTier"):Connect(function()
+            onTierChanged(anchor)
+        end)
     end
 
-    -- Catch towers that are built/upgraded after load
-    workspace.ChildAdded:Connect(function(child)
-        if child:IsA("BasePart") then
-            attachTower(child :: BasePart)
-        end
-    end)
+    for _, child in workspace:GetChildren() do hookAnchor(child) end
+    workspace.ChildAdded:Connect(hookAnchor)
 
-    -- Update bubble when an upgrade completes
+    -- After a successful upgrade the server fires TowerLevelChanged;
+    -- update cost label immediately so the player sees the next tier's price
+    -- without waiting for the UpgradeTier attribute replication round-trip.
     Remotes.TowerLevelChanged.OnClientEvent:Connect(function(towerName: string, _tier: number, nextCost: number?)
         local anchor = workspace:FindFirstChild(towerName)
         if not anchor or not anchor:IsA("BasePart") then return end
         if nextCost then
-            -- Update cost in registry and bubble label
-            _towerCosts[towerName] = nextCost
             for _, item in _interactives do
-                if item.part == anchor then
-                    item.cost = nextCost
-                    break
-                end
+                if item.part == anchor then item.cost = nextCost break end
             end
             local lbl = getBubbleLabel(anchor :: BasePart)
             if lbl then lbl.Text = tostring(nextCost) end
-        else
-            -- Tower is maxed — remove interactive and bubble
-            for i = #_interactives, 1, -1 do
-                if _interactives[i].part == anchor then
-                    table.remove(_interactives, i)
-                end
-            end
-            local bb = (anchor :: BasePart):FindFirstChild("CoinBubble")
-            if bb then bb:Destroy() end
         end
+        -- nil nextCost means maxed — the UpgradeTier attribute change already cleared it
     end)
 end
 

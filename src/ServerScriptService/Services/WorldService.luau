@@ -347,6 +347,8 @@ local function spawnTower(anchor: BasePart, tier: number)
     local old = workspace:FindFirstChild(visName)
     if old then old:Destroy() end
 
+    anchor:SetAttribute("UpgradeTier", tier)  -- replicated to clients for bubble cost
+
     -- Reset anchor to a clean ground-level invisible pin; NpcService still finds it
     anchor.Position    = Vector3.new(anchor.Position.X, 0, anchor.Position.Z)
     anchor.Size        = Vector3.new(1, 0.1, 1)
