@@ -19,7 +19,7 @@ local function spawnMayor(pos: Vector3): Model
     root.Size       = Vector3.new(2, 3, 1)
     root.BrickColor = BrickColor.new("Bright blue")
     root.CanCollide = false   -- players walk through the mayor
-    root.Position   = pos + Vector3.new(0, 1.5, 0)
+    root.Position   = pos + Vector3.new(-10, 1.5, -6)
     root.Parent     = model
 
     local humanoid         = Instance.new("Humanoid")
@@ -91,19 +91,7 @@ local function init()
 
     task.delay(3, doFireLightSequence)
 
-    -- Gentle wander around town center
-    task.spawn(function()
-        while true do
-            task.wait(math.random(6, 14))
-            if not _mayorModel or not _mayorModel.Parent then break end
-            local humanoid = _mayorModel:FindFirstChildOfClass("Humanoid")
-            if not humanoid then continue end
-            local angle  = math.random() * 2 * math.pi
-            local dist   = math.random() * 8
-            humanoid:MoveTo(GameConfig.TOWN_CENTER_POS
-                + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist))
-        end
-    end)
+    WorldService.startMayorAI(_mayorModel)
 
     -- Dawn: pay interest, open bank
     TimeService.onDawn(function(_day)
@@ -117,16 +105,9 @@ local function init()
         end
     end)
 
-    -- Dusk: close bank, Mayor retreats to tent
+    -- Dusk: close bank (mayor retreat handled by Bootstrap → WorldService.retreatMayorToTownHall)
     TimeService.onDusk(function()
         _bankOpen = false
-        if _mayorModel then
-            local tent = workspace:FindFirstChild("TownCenterTent")
-            if tent then
-                local humanoid = _mayorModel:FindFirstChildOfClass("Humanoid")
-                if humanoid then humanoid:MoveTo(tent.Position + Vector3.new(0, -4, 0)) end
-            end
-        end
     end)
 end
 

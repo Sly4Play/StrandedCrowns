@@ -1,0 +1,256 @@
+<h2>Tower Tier Progression — Cross-Section Mockups</h2>
+<p class="subtitle">Each tier shown as a front-face cross-section. Archers = 🏹. Click any tier to select it as a reference point.</p>
+
+<style>
+.tier-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 12px;
+  margin-top: 18px;
+}
+.tier-card {
+  background: #1e1e2e;
+  border: 2px solid #333;
+  border-radius: 8px;
+  padding: 10px 6px 12px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+.tier-card:hover { border-color: #7c6af7; }
+.tier-card.selected { border-color: #a78bfa; background: #2a2040; }
+.tier-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #a78bfa;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.tier-name {
+  font-size: 10px;
+  color: #888;
+  margin-bottom: 10px;
+  min-height: 28px;
+}
+.scene {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 130px;
+  position: relative;
+}
+/* Ground */
+.ground {
+  width: 80px;
+  height: 6px;
+  background: #5a4a2a;
+  border-radius: 2px;
+  position: absolute;
+  bottom: 0;
+}
+/* Dirt patch (tier 0) */
+.dirt-patch {
+  width: 60px;
+  height: 8px;
+  background: #7a6040;
+  border-radius: 3px;
+  position: absolute;
+  bottom: 6px;
+}
+/* Mound (tier 1) */
+.mound {
+  width: 50px;
+  height: 14px;
+  background: #8b6914;
+  border-radius: 8px 8px 2px 2px;
+  position: absolute;
+  bottom: 6px;
+}
+/* Wood wall blocks */
+.wall {
+  background: #8b5e2a;
+  border: 1px solid #6b4418;
+  border-radius: 2px;
+  position: absolute;
+}
+/* Stone blocks */
+.stone {
+  background: #6b7280;
+  border: 1px solid #4b5563;
+  border-radius: 2px;
+  position: absolute;
+}
+/* Platforms */
+.platform {
+  background: #78450a;
+  border: 1px solid #5a3208;
+  border-radius: 2px;
+  position: absolute;
+}
+.platform-stone {
+  background: #555e6d;
+  border: 1px solid #3d4452;
+  border-radius: 2px;
+  position: absolute;
+}
+/* Battlements */
+.merlon {
+  background: #6b7280;
+  border: 1px solid #4b5563;
+  border-radius: 2px 2px 0 0;
+  position: absolute;
+}
+/* Archer */
+.archer {
+  font-size: 13px;
+  position: absolute;
+  line-height: 1;
+}
+/* Slot indicator */
+.slots {
+  font-size: 10px;
+  color: #f59e0b;
+  margin-top: 8px;
+  font-weight: 600;
+}
+</style>
+
+<div class="tier-grid">
+
+  <!-- TIER 0 -->
+  <div class="tier-card" data-choice="0" onclick="toggleSelect(this)">
+    <div class="tier-label">TIER 0</div>
+    <div class="tier-name">Dirt Patch</div>
+    <div class="scene">
+      <div class="dirt-patch"></div>
+      <div class="ground"></div>
+    </div>
+    <div class="slots">0 archers</div>
+  </div>
+
+  <!-- TIER 1 -->
+  <div class="tier-card" data-choice="1" onclick="toggleSelect(this)">
+    <div class="tier-label">TIER 1</div>
+    <div class="tier-name">Earthen Mound</div>
+    <div class="scene">
+      <!-- mound -->
+      <div class="mound"></div>
+      <!-- archer on top of mound -->
+      <div class="archer" style="bottom:20px;">🏹</div>
+      <div class="ground"></div>
+    </div>
+    <div class="slots">1 archer (exposed)</div>
+  </div>
+
+  <!-- TIER 2 -->
+  <div class="tier-card" data-choice="2" onclick="toggleSelect(this)">
+    <div class="tier-label">TIER 2</div>
+    <div class="tier-name">Wooden Palisade</div>
+    <div class="scene">
+      <!-- two side wall posts -->
+      <div class="wall" style="width:10px;height:50px;bottom:6px;left:50%;margin-left:-28px;"></div>
+      <div class="wall" style="width:10px;height:50px;bottom:6px;left:50%;margin-left:18px;"></div>
+      <!-- back wall fill -->
+      <div class="wall" style="width:36px;height:44px;bottom:6px;left:50%;transform:translateX(-50%);"></div>
+      <!-- top platform -->
+      <div class="platform" style="width:50px;height:6px;bottom:50px;left:50%;transform:translateX(-50%);"></div>
+      <!-- archer protected behind walls -->
+      <div class="archer" style="bottom:56px;">🏹</div>
+      <div class="ground"></div>
+    </div>
+    <div class="slots">1 archer (protected)</div>
+  </div>
+
+  <!-- TIER 3 -->
+  <div class="tier-card" data-choice="3" onclick="toggleSelect(this)">
+    <div class="tier-label">TIER 3</div>
+    <div class="tier-name">Tall Palisade</div>
+    <div class="scene">
+      <!-- wider tower body -->
+      <div class="wall" style="width:52px;height:58px;bottom:6px;left:50%;transform:translateX(-50%);"></div>
+      <!-- platform -->
+      <div class="platform" style="width:60px;height:6px;bottom:62px;left:50%;transform:translateX(-50%);"></div>
+      <!-- 2 archers side by side -->
+      <div class="archer" style="bottom:68px;left:50%;margin-left:-22px;">🏹</div>
+      <div class="archer" style="bottom:68px;left:50%;margin-left:6px;">🏹</div>
+      <div class="ground"></div>
+    </div>
+    <div class="slots">2 archers</div>
+  </div>
+
+  <!-- TIER 4 -->
+  <div class="tier-card" data-choice="4" onclick="toggleSelect(this)">
+    <div class="tier-label">TIER 4</div>
+    <div class="tier-name">Pyramid Tower</div>
+    <div class="scene">
+      <!-- lower wide level -->
+      <div class="wall" style="width:64px;height:36px;bottom:6px;left:50%;transform:translateX(-50%);border-radius:2px;"></div>
+      <!-- lower platform -->
+      <div class="platform" style="width:72px;height:5px;bottom:42px;left:50%;transform:translateX(-50%);"></div>
+      <!-- 2 archers on lower level -->
+      <div class="archer" style="bottom:48px;left:50%;margin-left:-28px;font-size:11px;">🏹</div>
+      <div class="archer" style="bottom:48px;left:50%;margin-left:12px;font-size:11px;">🏹</div>
+      <!-- upper narrower level -->
+      <div class="wall" style="width:36px;height:30px;bottom:47px;left:50%;transform:translateX(-50%);"></div>
+      <!-- upper platform -->
+      <div class="platform" style="width:42px;height:5px;bottom:76px;left:50%;transform:translateX(-50%);"></div>
+      <!-- 1 archer on top -->
+      <div class="archer" style="bottom:82px;left:50%;transform:translateX(-50%);font-size:11px;">🏹</div>
+      <div class="ground"></div>
+    </div>
+    <div class="slots">2 lower + 1 upper</div>
+  </div>
+
+  <!-- TIER 5 -->
+  <div class="tier-card" data-choice="5" onclick="toggleSelect(this)">
+    <div class="tier-label">TIER 5</div>
+    <div class="tier-name">Watch Tower</div>
+    <div class="scene">
+      <!-- solid tall body -->
+      <div class="wall" style="width:58px;height:70px;bottom:6px;left:50%;transform:translateX(-50%);background:#6b4a1a;"></div>
+      <!-- wide shooting platform with slight overhang -->
+      <div class="platform" style="width:70px;height:8px;bottom:74px;left:50%;transform:translateX(-50%);"></div>
+      <!-- 3 archers in a row -->
+      <div class="archer" style="bottom:82px;left:50%;margin-left:-30px;font-size:11px;">🏹</div>
+      <div class="archer" style="bottom:82px;left:50%;transform:translateX(-50%);font-size:11px;">🏹</div>
+      <div class="archer" style="bottom:82px;left:50%;margin-left:16px;font-size:11px;">🏹</div>
+      <!-- low parapet wall nubs -->
+      <div class="wall" style="width:8px;height:10px;bottom:82px;left:50%;margin-left:-36px;background:#5a3e15;border-radius:2px 2px 0 0;"></div>
+      <div class="wall" style="width:8px;height:10px;bottom:82px;left:50%;margin-left:28px;background:#5a3e15;border-radius:2px 2px 0 0;"></div>
+      <div class="ground"></div>
+    </div>
+    <div class="slots">3 archers (same level)</div>
+  </div>
+
+  <!-- TIER 6 -->
+  <div class="tier-card" data-choice="6" onclick="toggleSelect(this)">
+    <div class="tier-label">TIER 6</div>
+    <div class="tier-name">Stone Fortress</div>
+    <div class="scene">
+      <!-- stone body -->
+      <div class="stone" style="width:64px;height:76px;bottom:6px;left:50%;transform:translateX(-50%);"></div>
+      <!-- stone shooting platform -->
+      <div class="platform-stone" style="width:76px;height:8px;bottom:80px;left:50%;transform:translateX(-50%);"></div>
+      <!-- 4 archers -->
+      <div class="archer" style="bottom:89px;left:50%;margin-left:-36px;font-size:10px;">🏹</div>
+      <div class="archer" style="bottom:89px;left:50%;margin-left:-14px;font-size:10px;">🏹</div>
+      <div class="archer" style="bottom:89px;left:50%;margin-left:8px;font-size:10px;">🏹</div>
+      <div class="archer" style="bottom:89px;left:50%;margin-left:28px;font-size:10px;">🏹</div>
+      <!-- stone battlements / merlons -->
+      <div class="merlon" style="width:9px;height:12px;bottom:88px;left:50%;margin-left:-40px;"></div>
+      <div class="merlon" style="width:9px;height:12px;bottom:88px;left:50%;margin-left:-22px;"></div>
+      <div class="merlon" style="width:9px;height:12px;bottom:88px;left:50%;margin-left:-4px;"></div>
+      <div class="merlon" style="width:9px;height:12px;bottom:88px;left:50%;margin-left:14px;"></div>
+      <div class="merlon" style="width:9px;height:12px;bottom:88px;left:50%;margin-left:32px;"></div>
+      <div class="ground"></div>
+    </div>
+    <div class="slots">4 archers (stone)</div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <p class="subtitle">Click any tier to select it. Does this progression feel right? Any tier need adjusting?</p>
+</div>

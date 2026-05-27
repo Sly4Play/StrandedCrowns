@@ -37,6 +37,7 @@ function CoinService.award(id: number, amt: number): number
 end
 
 function CoinService.spend(id: number, amt: number): boolean
+    if GameConfig.DEV_MODE then return true end
     local entry = purses[id]
     if not entry or entry.amount < amt then return false end
     entry.amount -= amt
@@ -199,13 +200,24 @@ task.spawn(function()
     end
 end)
 
-Players.PlayerAdded:Connect(function(p)
+local function onPlayerAdded(p: Player)
     CoinService.init(p.UserId, GameConfig.PLAYER_PURSE_MAX)
-    Remotes.CoinChanged:FireClient(p, 0)
-end)
+    if GameConfig.DEV_MODE then
+        CoinService.award(p.UserId, GameConfig.PLAYER_PURSE_MAX)
+    else
+        Remotes.CoinChanged:FireClient(p, 0)
+    end
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
 Players.PlayerRemoving:Connect(function(p)
     purses[p.UserId] = nil
 end)
+
+-- Play Solo: local player exists before this module loads; PlayerAdded won't replay.
+for _, p in Players:GetPlayers() do
+    onPlayerAdded(p)
+end
 
 CoinService._runTests = function()
     CoinService.init(999, 25)

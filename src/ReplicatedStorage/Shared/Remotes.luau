@@ -29,15 +29,18 @@ return {
     PhaseChanged        = get("RemoteEvent",    "PhaseChanged"),        -- (phase: Phase, day: number)
     CoinChanged         = get("RemoteEvent",    "CoinChanged"),         -- (amount: number)
     FirepitLevelChanged = get("RemoteEvent",    "FirepitLevelChanged"), -- (level: number, nextCost: number?)
+    TowerLevelChanged   = get("RemoteEvent",    "TowerLevelChanged"),   -- (towerName: string, tier: number, nextCost: number?)
     NpcCoinDump         = get("RemoteEvent",    "NpcCoinDump"),         -- (npcPos: Vector3, amount: number)
     -- Client → Server
     DropCoins    = get("RemoteEvent",    "DropCoins"),     -- (amount: number)
     DropFood     = get("RemoteEvent",    "DropFood"),      -- () spawns food at player pos
     BuyTool         = get("RemoteFunction", "BuyTool"),          -- () → bool (add hammer to rack)
     BuyBow          = get("RemoteFunction", "BuyBow"),           -- () → bool (add bow to rack)
+    BuyKnightShield = get("RemoteFunction", "BuyKnightShield"), -- (slotId: number) → bool
     MarkTree        = get("RemoteFunction", "MarkTree"),         -- (treeId: string) → bool
     BankWithdraw    = get("RemoteFunction", "BankWithdraw"),     -- (amount: number) → bool
     UpgradeFirepit  = get("RemoteFunction", "UpgradeFirepit"),   -- () → bool
+    UpgradeTower    = get("RemoteFunction", "UpgradeTower"),     -- (towerName: string) → bool
     MarkBoat        = get("RemoteFunction", "MarkBoat"),         -- () → bool
     AttackPortal    = get("RemoteFunction", "AttackPortal"),     -- () → number (remaining HP, -1 = none in range)
     BuildStructure  = get("RemoteFunction", "BuildStructure"),   -- () → bool (1 coin = 1 build tick on nearest foundation)

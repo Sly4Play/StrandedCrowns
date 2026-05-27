@@ -63,19 +63,6 @@ if GameConfig.DEV_MODE then
             Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, firstCost)
         end)
         print("[Bootstrap] DEV_MODE — Island 5 town loaded (firepit tier 0)")
-
-        -- Cycle all 4 towers through tiers 2-6 so the 3D progression can be inspected.
-        -- Towers start at tier 1 (earthen mound) after autoCompleteTownStructures.
-        task.spawn(function()
-            local towerNames = {"Tower_E", "Tower_S", "Tower_W", "Tower_N"}
-            for tier = 2, 6 do
-                task.wait(12)
-                for _, name in towerNames do
-                    WorldService.upgradeTower(name, tier)
-                end
-                print("[DevTowers] All towers → tier", tier)
-            end
-        end)
     end
     require(Services.NpcService)
 else
@@ -243,6 +230,31 @@ Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
         print("[Bootstrap] Firepit upgrade complete — level", _firepitLevel, "ready")
     end)
 
+    return true
+end
+
+-- Tower tiers tracked per anchor name (starts at 1 after autoComplete builds them)
+local _towerTiers: {[string]: number} = {}
+
+Remotes.UpgradeTower.OnServerInvoke = function(player: Player, towerName: string): boolean
+    local costs    = GameConfig.TOWER_UPGRADE_COSTS
+    local current  = _towerTiers[towerName] or 1
+    local nextTier = current + 1
+    if nextTier > 6 then return false end  -- already max
+    local costIdx  = nextTier - 1          -- costs[1]=tier2, costs[2]=tier3, …, costs[5]=tier6
+    if not GameConfig.DEV_MODE then
+        local cost = costs[costIdx]
+        if not cost then return false end
+        if not CoinService.spend(player.UserId, cost) then
+            scatterCoinsOnFail(player, cost)
+            return false
+        end
+    end
+    _towerTiers[towerName] = nextTier
+    WorldService.upgradeTower(towerName, nextTier)
+    local nextCost = costs[costIdx + 1]  -- nil when maxed
+    Remotes.TowerLevelChanged:FireAllClients(towerName, nextTier, nextCost)
+    print("[Bootstrap] Tower", towerName, "→ tier", nextTier)
     return true
 end
 

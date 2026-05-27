@@ -10,6 +10,7 @@ return {
 
     -- Island layout (XZ positions; Y computed per-object at spawn)
     TOWN_CENTER_POS  = Vector3.new(  0, 0,    0),
+    TOWN_HALL_OFFSET = Vector3.new( 24, 0,   24),  -- SE build slot; scales with firepit tier
     PORTAL_NORTH_POS = Vector3.new(  0, 0, -240),
     PORTAL_SOUTH_POS = Vector3.new(  0, 0,  240),
     ISLAND_RADIUS    = 240,  -- fallback; per-island values below take priority
@@ -74,8 +75,10 @@ return {
 
     -- Tool shops / racks
     RACK_MAX_TOOLS  = 4,    -- max tools on any shop rack at once
-    HAMMER_COST     = 3,
-    BOW_COST        = 2,
+    HAMMER_COST         = 3,
+    BOW_COST            = 2,
+    KNIGHT_SHIELD_COST  = 4,
+    KNIGHT_MAX_SHIELDS  = 4,
 
     -- Animals
     ANIMAL_COUNT               = 10,   -- target live population on island
@@ -93,6 +96,7 @@ return {
     -- Structures
     STRUCTURE_BUILD_DURATION = 5,
     TOWER_BUILD_COST         = 3,   -- coins to unlock a tower marker (player F-hold); builder then completes it
+    TOWER_UPGRADE_COSTS      = {5, 8, 12, 16, 20},  -- tiers 2→3→4→5→6
     BARRICADE_BUILD_COST     = 1,   -- coins to unlock a barricade marker; builder then completes it
     FARMING_BUILD_COST       = 4,   -- coins player must spend to establish a farming area
     TOWER_MAX_BUILDERS       = 2,

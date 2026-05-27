@@ -20,6 +20,9 @@ end
 -- ── Coin bubble ───────────────────────────────────────────────────────────
 
 local function attachCoinBubble(part: BasePart, cost: number, maxDist: number?)
+    local existing = part:FindFirstChild("CoinBubble")
+    if existing then existing:Destroy() end
+
     local billboard             = Instance.new("BillboardGui")
     billboard.Name              = "CoinBubble"
     billboard.Size              = UDim2.new(0, 44, 0, 24)
@@ -98,6 +101,23 @@ local function getHudCoinLabel(): TextLabel?
 end
 
 local function streamBuy(best: Interactive, fromPos: Vector3)
+    if GameConfig.DEV_MODE then
+        _streamComplete = true
+        local success = best.action()
+        if not success then
+            local frame = getBubbleFrame(best.part)
+            if frame then
+                frame.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+                task.delay(0.4, function()
+                    if frame.Parent then
+                        frame.BackgroundColor3 = Color3.fromRGB(255, 210, 0)
+                    end
+                end)
+            end
+        end
+        return
+    end
+
     local cost      = best.cost
     local remaining = cost
     local label     = getBubbleLabel(best.part)
@@ -246,6 +266,47 @@ local function watchForBowShop()
     end)
 end
 
+local function watchForKnightShields()
+    local function attachMount(mount: BasePart)
+        if mount:GetAttribute("MountType") ~= "KnightShield" then return end
+        attachCoinBubble(mount, GameConfig.KNIGHT_SHIELD_COST, 18)
+        register(mount, GameConfig.KNIGHT_SHIELD_COST, function(): boolean
+            local slotId = mount:GetAttribute("SlotId")
+            if typeof(slotId) ~= "number" then return false end
+            return Remotes.BuyKnightShield:InvokeServer(slotId)
+        end, function(): boolean
+            return not mount:GetAttribute("HasShield") and not mount:GetAttribute("HasBanner")
+        end, 18)
+        mount.AttributeChanged:Connect(function(attr: string)
+            if attr ~= "HasShield" and attr ~= "HasBanner" then return end
+            if mount:GetAttribute("HasShield") or mount:GetAttribute("HasBanner") then
+                local bb = mount:FindFirstChild("CoinBubble")
+                if bb then bb:Destroy() end
+            end
+        end)
+    end
+
+    local function attachModel(model: Instance)
+        if model.Name ~= "TownHallModel" then return end
+        for _, desc in model:GetDescendants() do
+            if desc.Name == "KnightShieldMount" and desc:IsA("BasePart") then
+                attachMount(desc)
+            end
+        end
+        model.DescendantAdded:Connect(function(desc: Instance)
+            if desc.Name == "KnightShieldMount" and desc:IsA("BasePart") then
+                attachMount(desc)
+            end
+        end)
+    end
+
+    workspace.ChildAdded:Connect(function(child)
+        if child.Name == "TownHallModel" then attachModel(child) end
+    end)
+    local existing = workspace:FindFirstChild("TownHallModel")
+    if existing then attachModel(existing) end
+end
+
 local function watchForTrees()
     local function attach(child)
         if not (child.Name:sub(1, 5) == "Tree_" and child:IsA("Model")) then return end
@@ -289,34 +350,100 @@ local function watchForMayor()
 end
 
 local function watchForFirePit()
-    local function attach(child)
-        if not (child.Name == "FirePit" and child:IsA("BasePart")) then return end
-        local part        = child :: BasePart
-        local initialCost = GameConfig.FIREPIT_UPGRADE_COSTS[1]
-        attachCoinBubble(part, initialCost, 15)
-        register(part, initialCost, function(): boolean
-            return Remotes.UpgradeFirepit:InvokeServer()
-        end)
-        Remotes.FirepitLevelChanged.OnClientEvent:Connect(function(_level: number, nextCost: number?)
-            for i, item in _interactives do
-                if item.part ~= part then continue end
-                if nextCost then
-                    item.cost = nextCost
-                    local label = getBubbleLabel(part)
-                    if label and label.Parent then label.Text = tostring(nextCost) end
-                else
-                    -- All upgrades done
-                    table.remove(_interactives, i)
-                    local bb = part:FindFirstChild("CoinBubble")
-                    if bb then bb:Destroy() end
-                end
-                break
+    -- FirePit anchor lives inside FirePitModel (rebuilt on every upgrade).
+    -- We track the current upgrade cost here so re-registrations use the right value.
+    local _currentCost   = GameConfig.FIREPIT_UPGRADE_COSTS[1]
+    local _attachedPart: BasePart? = nil
+    local _pendingModel: Model?    = nil
+
+    local function clearFirepitInteractive()
+        for i = #_interactives, 1, -1 do
+            if _interactives[i].part.Name == "FirePit" then
+                table.remove(_interactives, i)
             end
+        end
+        if _attachedPart and _attachedPart.Parent then
+            local bb = _attachedPart:FindFirstChild("CoinBubble")
+            if bb then bb:Destroy() end
+        end
+        _attachedPart = nil
+    end
+
+    local function attachModel(model: Model)
+        if _pendingModel == model then return end
+        _pendingModel = model
+
+        task.spawn(function()
+            print("[FirePit] attachModel waiting for FirePit child in", model:GetFullName())
+            local part = model:WaitForChild("FirePit", 10)
+            _pendingModel = nil
+
+            if not part or not part:IsA("BasePart") then
+                warn("[FirePit] no FirePit BasePart inside FirePitModel (timeout)")
+                return
+            end
+            if not model.Parent then return end
+
+            part = part :: BasePart
+            if _attachedPart == part then return end
+
+            clearFirepitInteractive()
+            _attachedPart = part
+            -- Only clear if THIS model is still the active firepit (old models' Destroying
+            -- callbacks fire after the replacement re-attaches and must not wipe the new one).
+            model.Destroying:Once(function()
+                if _attachedPart and _attachedPart:IsDescendantOf(model) then
+                    clearFirepitInteractive()
+                end
+            end)
+
+            attachCoinBubble(part, _currentCost, 30)
+            register(part, _currentCost, function(): boolean
+                return Remotes.UpgradeFirepit:InvokeServer()
+            end, nil, 15)
+            print("[FirePit] registered — cost:", _currentCost, "pos:", part.Position)
         end)
     end
-    workspace.ChildAdded:Connect(attach)
-    local existing = workspace:FindFirstChild("FirePit")
-    if existing and existing:IsA("BasePart") then attach(existing) end
+
+    -- New FirePitModel replicated (initial spawn or post-upgrade rebuild)
+    workspace.ChildAdded:Connect(function(child)
+        if child.Name == "FirePitModel" and child:IsA("Model") then
+            print("[FirePit] FirePitModel arrived via ChildAdded")
+            attachModel(child :: Model)
+        end
+    end)
+
+    -- Already in workspace when this controller loads (DEV_MODE fast spawn)
+    local existing = workspace:FindFirstChild("FirePitModel")
+    print("[FirePit] existing FirePitModel on load:", existing)
+    if existing and existing:IsA("Model") then
+        attachModel(existing :: Model)
+    end
+
+    -- Keep cost in sync; when nextCost is nil the firepit is maxed out
+    Remotes.FirepitLevelChanged.OnClientEvent:Connect(function(_level: number, nextCost: number?)
+        if nextCost then
+            _currentCost = nextCost
+            if _attachedPart and _attachedPart.Parent then
+                for _, item in _interactives do
+                    if item.part == _attachedPart then
+                        item.cost = nextCost
+                        break
+                    end
+                end
+                local lbl = getBubbleLabel(_attachedPart)
+                if lbl and lbl.Parent then lbl.Text = tostring(nextCost) end
+            else
+                -- Rebuild may have cleared registration before the new model attached
+                local model = workspace:FindFirstChild("FirePitModel")
+                if model and model:IsA("Model") then
+                    attachModel(model :: Model)
+                end
+            end
+        else
+            clearFirepitInteractive()
+        end
+    end)
 end
 
 local function watchForBoat()
@@ -410,14 +537,85 @@ local function watchForPortals()
     end
 end
 
+local function watchForTowers()
+    -- Tracks cost per tower so the bubble updates after each upgrade.
+    local _towerCosts: {[string]: number} = {}
+
+    local function costForTower(anchor: BasePart): number?
+        local tier  = anchor:GetAttribute("Level") or 1
+        local costs = GameConfig.TOWER_UPGRADE_COSTS
+        local idx   = tier  -- tier 1→costs[1]=5, tier 2→costs[2]=8, …
+        return costs[idx]
+    end
+
+    local function attachTower(anchor: BasePart)
+        if anchor:GetAttribute("StructureType") ~= "Tower" then return end
+        if (anchor:GetAttribute("Level") or 0) < 1 then return end
+        -- Avoid double-registering
+        for _, item in _interactives do
+            if item.part == anchor then return end
+        end
+        local cost = costForTower(anchor)
+        if not cost then return end  -- already maxed
+        _towerCosts[anchor.Name] = cost
+        attachCoinBubble(anchor, cost, 20)
+        register(anchor, cost, function(): boolean
+            return Remotes.UpgradeTower:InvokeServer(anchor.Name)
+        end, nil, 15)
+    end
+
+    -- Attach to towers already in workspace (built before this script runs)
+    for _, child in workspace:GetChildren() do
+        if child:IsA("BasePart") then
+            attachTower(child :: BasePart)
+        end
+    end
+
+    -- Catch towers that are built/upgraded after load
+    workspace.ChildAdded:Connect(function(child)
+        if child:IsA("BasePart") then
+            attachTower(child :: BasePart)
+        end
+    end)
+
+    -- Update bubble when an upgrade completes
+    Remotes.TowerLevelChanged.OnClientEvent:Connect(function(towerName: string, _tier: number, nextCost: number?)
+        local anchor = workspace:FindFirstChild(towerName)
+        if not anchor or not anchor:IsA("BasePart") then return end
+        if nextCost then
+            -- Update cost in registry and bubble label
+            _towerCosts[towerName] = nextCost
+            for _, item in _interactives do
+                if item.part == anchor then
+                    item.cost = nextCost
+                    break
+                end
+            end
+            local lbl = getBubbleLabel(anchor :: BasePart)
+            if lbl then lbl.Text = tostring(nextCost) end
+        else
+            -- Tower is maxed — remove interactive and bubble
+            for i = #_interactives, 1, -1 do
+                if _interactives[i].part == anchor then
+                    table.remove(_interactives, i)
+                end
+            end
+            local bb = (anchor :: BasePart):FindFirstChild("CoinBubble")
+            if bb then bb:Destroy() end
+        end
+    end)
+end
+
 watchForHammerShop()
 watchForBowShop()
+watchForKnightShields()
 watchForTrees()
 watchForMayor()
 watchForFirePit()
 watchForBoat()
 watchForPortals()
 watchForStructureFoundations()
+watchForTowers()
 
 local InputController = {}
 return InputController
