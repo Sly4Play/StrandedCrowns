@@ -1193,13 +1193,15 @@ function WorldService.spawnDevTown()
     fire.Parent    = pit
     label(pit, "Firepit Lvl 6")
 
-    -- Tool shops
+    -- Tool shops — placed near their cardinal gates in dev mode (override production SW/NE diagonals)
     print("[DevTown] step 2: shops")
-    WorldService.spawnHammerShop()
-    local hammerShop = workspace:FindFirstChild("HammerShop")
-    local bowShop    = workspace:FindFirstChild("BowShop")
-    if hammerShop and hammerShop:IsA("BasePart") then label(hammerShop :: BasePart, "Hammer Shop") end
-    if bowShop    and bowShop:IsA("BasePart")    then label(bowShop    :: BasePart, "Bow Shop")    end
+    _hammerShopSpawned = true  -- prevent double-spawn if something else calls spawnHammerShop
+    local hammerShop = makeShop(center, "Hammer", BrickColor.new("Bright orange"), Vector3.new(-34, 2, 0))
+    initRack(hammerShop, "Hammer")
+    local bowShop    = makeShop(center, "Bow",    BrickColor.new("Bright blue"),   Vector3.new( 34, 2, 0))
+    initRack(bowShop, "Bow")
+    label(hammerShop, "Hammer Shop")
+    label(bowShop,    "Bow Shop")
 
     -- Placeholder shops
     local function devShop(name: string, col: BrickColor, offset: Vector3)
@@ -1216,10 +1218,10 @@ function WorldService.spawnDevTown()
     end
 
     print("[DevTown] step 3: placeholder shops")
-    devShop("Farmer",  BrickColor.new("Bright green"),    Vector3.new(  0, 2, -22))  -- swapped with TownHall
     devShop("Upgrade", BrickColor.new("Bright yellow"),   Vector3.new(-24, 2, -24))
-    devShop("Bomb",    BrickColor.new("Dark stone grey"), Vector3.new(  0, 2, -10))  -- north of fire
-    devShop("Pikeman", BrickColor.new("Bright red"),      Vector3.new(-12, 2,  24))  -- beside HammerShop, 8-stud gap
+    devShop("Farmer",  BrickColor.new("Bright green"),    Vector3.new(-12, 2, -24))  -- east of Upgrade, ~8-stud gap
+    devShop("Bomb",    BrickColor.new("Dark stone grey"), Vector3.new( 24, 2,  -6))  -- near BowShop / E gate
+    devShop("Pikeman", BrickColor.new("Bright red"),      Vector3.new(-20, 2,  36))  -- near SW perimeter wall
 
     -- Town Hall
     print("[DevTown] step 4: town hall")
@@ -1248,31 +1250,25 @@ function WorldService.spawnDevTown()
     print("[DevTown] step 6: perimeter walls")
     WorldService.spawnPerimeterWalls()
 
-    -- 8 portals — some repositioned or inset from island edge
-    -- Portal numbering: 1=E 2=SE 3=S 4=SW 5=W 6=NW 7=N 8=NE
-    -- Angles:          0   π/4  π/2  3π/4  π   5π/4 3π/2 7π/4
+    -- 8 portals — all pulled 50 studs closer to center vs island edge (islandR=510 → edgeR=460)
+    -- Portal numbering: 1=E  2=SE  3=S  4=SW  5=W  6=NW  7=N  8=in-front-of-1
+    -- NE edge (old portal 8 spot) left open for crashed boat spawn
     print("[DevTown] step 7: portals")
-    local islandR = GameConfig.ISLAND_RADIUS_BY_ISLAND[5]  -- 510
-    local inR     = islandR - 100                           -- 410 for inset portals
-    local pi      = math.pi
-    local cos, sin = math.cos, math.sin
+    local pi         = math.pi
+    local cos, sin   = math.cos, math.sin
+    local edgeR      = 460   -- edge portals: 510 pulled in 50
+    local inR        = 360   -- diagonal inset portals: 410 pulled in 50
+    -- Dungeon Z=440 → front face Z=420; portal 3 = 50 north of face
+    -- Guardian Z=-370 → portal 7 = 50 south of guardian
     local portalPositions = {
-        -- Portal 1 (E)  — unchanged at island edge
-        Vector3.new( cos(0)       * islandR, 0,  sin(0)       * islandR),
-        -- Portal 2 (SE) — inset 100
-        Vector3.new( cos(pi/4)    * inR,     0,  sin(pi/4)    * inR    ),
-        -- Portal 3 (S)  — moved 50 studs north of dungeon front face (dungeon at Z=490, face at Z=470)
-        Vector3.new( 0,                      0,  420                    ),
-        -- Portal 4 (SW) — unchanged
-        Vector3.new( cos(3*pi/4)  * islandR, 0,  sin(3*pi/4)  * islandR),
-        -- Portal 5 (W)  — inset 100
-        Vector3.new(-(inR),                  0,  0                      ),
-        -- Portal 6 (NW) — unchanged
-        Vector3.new( cos(5*pi/4)  * islandR, 0,  sin(5*pi/4)  * islandR),
-        -- Portal 7 (N)  — moved 50 studs south of guardian (guardian at Z=-420)
-        Vector3.new( 0,                      0, -370                    ),
-        -- Portal 8 (NE) — inset 100
-        Vector3.new( cos(7*pi/4)  * inR,     0,  sin(7*pi/4)  * inR    ),
+        Vector3.new( edgeR,              0,  0                     ),  -- 1 E
+        Vector3.new( cos(pi/4)  * inR,   0,  sin(pi/4)  * inR     ),  -- 2 SE inset
+        Vector3.new( 0,                  0,  370                   ),  -- 3 S  50N of dungeon face
+        Vector3.new( cos(3*pi/4)*edgeR,  0,  sin(3*pi/4)*edgeR    ),  -- 4 SW
+        Vector3.new(-inR,                0,  0                     ),  -- 5 W  inset
+        Vector3.new( cos(5*pi/4)*edgeR,  0,  sin(5*pi/4)*edgeR    ),  -- 6 NW
+        Vector3.new( 0,                  0, -320                   ),  -- 7 N  50S of guardian
+        Vector3.new( edgeR - 50,         0,  0                     ),  -- 8 E-axis 50 inside portal 1
     }
     for i, offset in portalPositions do
         local p = makePortal(center + offset)
@@ -1288,7 +1284,7 @@ function WorldService.spawnDevTown()
     guardian.BrickColor = BrickColor.new("Maroon")
     guardian.Anchored   = true
     guardian.CanCollide = true
-    guardian.Position   = center + Vector3.new(0, 10, -420)
+    guardian.Position   = center + Vector3.new(0, 10, -370)  -- pulled 50 closer (was -420)
     guardian.Parent     = workspace
     label(guardian, "Guardian")
 
@@ -1301,7 +1297,7 @@ function WorldService.spawnDevTown()
     lhBase.Material       = Enum.Material.SmoothPlastic
     lhBase.Anchored       = true
     lhBase.CanCollide     = true
-    lhBase.Position       = center + Vector3.new(0, 2, -490)
+    lhBase.Position       = center + Vector3.new(0, 2, -440)  -- pulled 50 closer (was -490)
     lhBase.Parent         = workspace
 
     local lhShaft         = Instance.new("Part")
@@ -1311,7 +1307,7 @@ function WorldService.spawnDevTown()
     lhShaft.Material      = Enum.Material.SmoothPlastic
     lhShaft.Anchored      = true
     lhShaft.CanCollide    = true
-    lhShaft.Position      = center + Vector3.new(0, 24, -490)
+    lhShaft.Position      = center + Vector3.new(0, 24, -440)
     lhShaft.Parent        = workspace
 
     local lhLight         = Instance.new("Part")
@@ -1322,7 +1318,7 @@ function WorldService.spawnDevTown()
     lhLight.Transparency  = 0.2
     lhLight.Anchored      = true
     lhLight.CanCollide    = true
-    lhLight.Position      = center + Vector3.new(0, 48, -490)
+    lhLight.Position      = center + Vector3.new(0, 48, -440)
     lhLight.Parent        = workspace
     label(lhLight, "Lighthouse")
 
@@ -1333,11 +1329,11 @@ function WorldService.spawnDevTown()
     dungeon.BrickColor  = BrickColor.new("Dark stone grey")
     dungeon.Anchored    = true
     dungeon.CanCollide  = true
-    dungeon.Position    = center + Vector3.new(0, 10, 490)
+    dungeon.Position    = center + Vector3.new(0, 10, 440)  -- pulled 50 closer (was 490); front face Z=420
     dungeon.Parent      = workspace
     label(dungeon, "Dungeon")
 
-    -- Dungeon entrance portal flush on north (town-facing) face at Z=470
+    -- Dungeon entrance portal flush on north (town-facing) face at Z=420
     local dp          = Instance.new("Part")
     dp.Name           = "DungeonPortal"
     dp.Size           = Vector3.new(10, 10, 1)
@@ -1346,7 +1342,7 @@ function WorldService.spawnDevTown()
     dp.Transparency   = 0.3
     dp.Anchored       = true
     dp.CanCollide     = false
-    dp.Position       = center + Vector3.new(0, 5, 469.5)
+    dp.Position       = center + Vector3.new(0, 5, 419.5)
     dp.Parent         = workspace
     label(dp, "Enter Dungeon")
 
