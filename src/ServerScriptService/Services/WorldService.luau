@@ -345,8 +345,7 @@ function WorldService.buildIsland(islandIdx: number?)
         center,
     }
 
-    -- Pre-compute the 8 town structure spots (4 towers + 4 barricades) so no tree
-    -- spawns on top of a build foundation.
+    -- Pre-compute structure footprints so no tree spawns on top of them.
     local structureSpots: {Vector3} = {}
     do
         local r = GameConfig.TOWN_RADIUS
@@ -357,14 +356,57 @@ function WorldService.buildIsland(islandIdx: number?)
             table.insert(structureSpots, base + tangent * (-8))  -- tower
             table.insert(structureSpots, base + tangent *   8)    -- barricade
         end
-        -- Shop positions must match makeHammerShop/makeBowShop offsets
-        table.insert(structureSpots, center + Vector3.new(-24, 0,  24))  -- HammerShop SW
-        table.insert(structureSpots, center + Vector3.new( 24, 0, -24))  -- BowShop    NE
-        -- Future/dev shops and town hall
-        table.insert(structureSpots, center + Vector3.new( 24, 0,  24))  -- FarmerShop SE
-        table.insert(structureSpots, center + Vector3.new(-24, 0, -24))  -- UpgradeShop NW
-        table.insert(structureSpots, center + Vector3.new(  0, 0,  36))  -- BombShop S
-        table.insert(structureSpots, center + Vector3.new(  0, 0, -22))  -- TownHall N
+
+        if iIdx == 5 then
+            -- ── Tier 6 (Island 5) fixed layout ───────────────────────────────
+            -- Town shops at arc positions (radius 38, inside perimeter wall)
+            for _, off in {
+                Vector3.new(-19, 0,  33),  -- HammerShop  SW-arc 120°
+                Vector3.new(-33, 0,  20),  -- PikemanShop SW-arc 150°
+                Vector3.new(-33, 0, -20),  -- UpgradeShop NW-arc 210°
+                Vector3.new(-19, 0, -33),  -- FarmerShop  NW-arc 240°
+                Vector3.new( 19, 0, -33),  -- BowShop     NE-arc 300°
+                Vector3.new( 33, 0, -20),  -- BombShop    NE-arc 330°
+                Vector3.new( 24, 0,  24),  -- TownHall    SE
+            } do
+                table.insert(structureSpots, center + off)
+            end
+            -- 8 enemy portals
+            local pi = math.pi
+            local cos, sin = math.cos, math.sin
+            local edgeR, inR = 410, 310
+            for _, off in {
+                Vector3.new( edgeR,             0,  0                 ),  -- P1 E
+                Vector3.new( cos(pi/4)*inR,     0,  sin(pi/4)*inR     ),  -- P2 SE
+                Vector3.new( 0,                 0,  320               ),  -- P3 S
+                Vector3.new( cos(3*pi/4)*edgeR, 0,  sin(3*pi/4)*edgeR),  -- P4 SW
+                Vector3.new(-inR,               0,  0                 ),  -- P5 W
+                Vector3.new( cos(5*pi/4)*edgeR, 0,  sin(5*pi/4)*edgeR),  -- P6 NW
+                Vector3.new( 0,                 0, -270               ),  -- P7 N
+                Vector3.new( edgeR - 50,        0,  0                 ),  -- P8 E-axis
+            } do
+                table.insert(structureSpots, center + off)
+            end
+            -- Far-field landmarks
+            table.insert(structureSpots, center + Vector3.new(  0, 0, -370))  -- Guardian
+            table.insert(structureSpots, center + Vector3.new(  0, 0, -440))  -- Lighthouse
+            table.insert(structureSpots, center + Vector3.new(360, 0, -360))  -- Boat repair site
+            -- Mountain base (80-stud wide): center + 8 perimeter points give 8-stud gap coverage
+            local mtnC = center + Vector3.new(0, 0, 440)
+            table.insert(structureSpots, mtnC)
+            for i = 0, 7 do
+                local a = i * math.pi / 4
+                table.insert(structureSpots, mtnC + Vector3.new(math.cos(a) * 40, 0, math.sin(a) * 40))
+            end
+        else
+            -- ── Islands 1-4: standard shop placeholder positions ──────────────
+            table.insert(structureSpots, center + Vector3.new(-24, 0,  24))  -- HammerShop SW
+            table.insert(structureSpots, center + Vector3.new( 24, 0, -24))  -- BowShop    NE
+            table.insert(structureSpots, center + Vector3.new( 24, 0,  24))  -- FarmerShop SE
+            table.insert(structureSpots, center + Vector3.new(-24, 0, -24))  -- UpgradeShop NW
+            table.insert(structureSpots, center + Vector3.new(  0, 0,  36))  -- BombShop S
+            table.insert(structureSpots, center + Vector3.new(  0, 0, -22))  -- TownHall N
+        end
     end
 
     if not GameConfig.DEV_MODE then
