@@ -56,12 +56,25 @@ if GameConfig.DEV_MODE then
     if not ok then
         warn("[Bootstrap] spawnDevTown FAILED:", err)
     else
-        _firepitLevel = 6
+        _firepitLevel = 0
+        local firstCost = GameConfig.FIREPIT_UPGRADE_COSTS[1]
         task.defer(function()
-            Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nil)
+            Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, firstCost)
         end)
-        print("[Bootstrap] DEV_MODE — Island 5 endgame town loaded")
+        print("[Bootstrap] DEV_MODE — Island 5 town loaded (firepit tier 0)")
     end
+    -- Award 20 coins to every player on join so upgrade testing is self-funding
+    local DEV_COINS = 20
+    local function awardDevCoins(player: Player)
+        task.wait(1)  -- wait for character + CoinService to initialise
+        local have = CoinService.getPurse(player.UserId)
+        if have < DEV_COINS then
+            CoinService.award(player.UserId, DEV_COINS - have)
+        end
+        Remotes.CoinChanged:FireClient(player, CoinService.getPurse(player.UserId))
+    end
+    _Players.PlayerAdded:Connect(awardDevCoins)
+    for _, p in _Players:GetPlayers() do task.spawn(awardDevCoins, p) end
 else
     WorldService.onMayorHouseBuilt(function()
         MayorService.buildTent(GameConfig.TOWN_CENTER_POS)
@@ -175,10 +188,17 @@ Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
     _firepitLevel = nextLevel
     WorldService.upgradeFirepit(_firepitLevel)
     if _firepitLevel == 1 then
-        WorldService.unlockCardinalDefenses()   -- 8g "pays for" all 8 cardinal defenses; builders complete them
+        WorldService.unlockCardinalDefenses()
     end
     if _firepitLevel == 2 then
-        WorldService.spawnMayorHouseFoundation()  -- builders will complete it; walls seal when done
+        WorldService.spawnMayorHouseFoundation()
+    end
+    -- In DEV_MODE refill the tester's purse back to 20 after each upgrade
+    if GameConfig.DEV_MODE then
+        local have = CoinService.getPurse(player.UserId)
+        local top  = 20
+        if have < top then CoinService.award(player.UserId, top - have) end
+        Remotes.CoinChanged:FireClient(player, CoinService.getPurse(player.UserId))
     end
     local nextCost = costs[_firepitLevel + 1]
     Remotes.FirepitLevelChanged:FireAllClients(_firepitLevel, nextCost)

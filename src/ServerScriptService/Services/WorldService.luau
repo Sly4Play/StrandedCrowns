@@ -1349,9 +1349,9 @@ function WorldService.spawnDevTown()
     -- Spawn just south of the firepit (pit half-size=4, spawn half-size=3, 1-stud gap)
     if _spawn then _spawn.Position = center + Vector3.new(0, 1, 8) end
 
-    -- Firepit tier 6 — great bonfire
+    -- Firepit starts at tier 0 so upgrade progression can be tested
     print("[DevTown] step 1: firepit")
-    spawnFirepit(center, 6)
+    spawnFirepit(center, 0)
 
     -- Tool shops — placed near their cardinal gates in dev mode (override production SW/NE diagonals)
     print("[DevTown] step 2: shops")
