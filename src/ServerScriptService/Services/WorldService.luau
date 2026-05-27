@@ -168,6 +168,160 @@ local function makeBowShop(pos: Vector3): BasePart
     return p
 end
 
+local function label(part: BasePart, text: string)
+    local bb       = Instance.new("BillboardGui")
+    bb.Size        = UDim2.new(0, 220, 0, 40)
+    bb.StudsOffset = Vector3.new(0, part.Size.Y / 2 + 3, 0)
+    bb.Parent      = part
+    local lbl                  = Instance.new("TextLabel")
+    lbl.Size                   = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.TextColor3             = Color3.new(1, 1, 1)
+    lbl.TextStrokeTransparency = 0
+    lbl.TextScaled             = true
+    lbl.Text                   = text
+    lbl.Parent                 = bb
+end
+
+-- Spawns (or rebuilds) the firepit visual for tiers 0-6.
+-- Tier 0 = 4 smouldering sticks; tier 6 = great bonfire log stack.
+-- All parts live in a Model named "FirePitModel"; the central "FirePit" part
+-- (invisible) holds the Fire particle so Bootstrap can still find it.
+local function spawnFirepit(center: Vector3, tier: number)
+    local existing = workspace:FindFirstChild("FirePitModel")
+    if existing then existing:Destroy() end
+
+    local model = Instance.new("Model")
+    model.Name  = "FirePitModel"
+
+    local logCol   = BrickColor.new("Reddish brown")
+    local stoneCol = BrickColor.new("Medium stone grey")
+    local ashCol   = BrickColor.new("Dark stone grey")
+
+    local function mkLog(sz: Vector3, cf: CFrame)
+        local p = Instance.new("Part"); p.Name = "Log"
+        p.Size = sz; p.BrickColor = logCol; p.Material = Enum.Material.Wood
+        p.Anchored = true; p.CanCollide = true; p.CFrame = cf; p.Parent = model
+    end
+    local function mkStone(sz: Vector3, cf: CFrame)
+        local p = Instance.new("Part"); p.Name = "Stone"
+        p.Size = sz; p.BrickColor = stoneCol; p.Material = Enum.Material.Cobblestone
+        p.Anchored = true; p.CanCollide = true; p.CFrame = cf; p.Parent = model
+    end
+    local function mkBase(sz: Vector3, pos: Vector3, col: BrickColor, mat: Enum.Material): BasePart
+        local p = Instance.new("Part"); p.Name = "FireBase"
+        p.Size = sz; p.BrickColor = col; p.Material = mat
+        p.Anchored = true; p.CanCollide = true; p.Position = pos; p.Parent = model
+        return p
+    end
+    -- N logs radiating from center, length `len`, diameter `dia`, at height y, rotated by `off`
+    local function logRing(n: number, len: number, dia: number, y: number, off: number)
+        for i = 0, n - 1 do
+            local a = i * (2 * math.pi / n) + off
+            mkLog(Vector3.new(len, dia, dia),
+                CFrame.new(center + Vector3.new(0, y, 0)) * CFrame.Angles(0, a, 0))
+        end
+    end
+    -- N stones evenly spaced on a circle of radius r at height y
+    local function stoneRing(n: number, r: number, sz: Vector3, y: number)
+        for i = 0, n - 1 do
+            local a = i * (2 * math.pi / n)
+            mkStone(sz, CFrame.new(center + Vector3.new(math.cos(a)*r, y, math.sin(a)*r)))
+        end
+    end
+
+    -- Invisible anchor Part that holds the Fire particle
+    local firePart = Instance.new("Part")
+    firePart.Name         = "FirePit"
+    firePart.Size         = Vector3.new(1, 0.2, 1)
+    firePart.Transparency = 1
+    firePart.Anchored     = true
+    firePart.CanCollide   = false
+    firePart.Parent       = model
+
+    local fire = Instance.new("Fire")
+
+    if tier == 0 then
+        -- 4 smouldering sticks on an ash patch; barely alight
+        firePart.Position = center + Vector3.new(0, 0.4, 0)
+        fire.Size = 1; fire.Heat = 1
+        mkBase(Vector3.new(4, 0.2, 4), center + Vector3.new(0, 0.1, 0), ashCol, Enum.Material.SmoothPlastic)
+        mkLog(Vector3.new(3.5, 0.4, 0.4), CFrame.new(center + Vector3.new( 0,    0.3,  0.6)))
+        mkLog(Vector3.new(3.5, 0.4, 0.4), CFrame.new(center + Vector3.new( 0,    0.3, -0.6)))
+        mkLog(Vector3.new(0.4, 0.4, 3.5), CFrame.new(center + Vector3.new( 0.6,  0.3,  0  )))
+        mkLog(Vector3.new(0.4, 0.4, 3.5), CFrame.new(center + Vector3.new(-0.6,  0.3,  0  )))
+
+    elseif tier == 1 then
+        -- 4 logs in a cross; kindling catches
+        firePart.Position = center + Vector3.new(0, 0.6, 0)
+        fire.Size = 4; fire.Heat = 5
+        mkBase(Vector3.new(5, 0.2, 5), center + Vector3.new(0, 0.1, 0), ashCol, Enum.Material.SmoothPlastic)
+        logRing(4, 5, 0.7, 0.45, 0)
+
+    elseif tier == 2 then
+        -- 6-log star + first stone ring; campfire proper
+        firePart.Position = center + Vector3.new(0, 0.9, 0)
+        fire.Size = 9; fire.Heat = 10
+        mkBase(Vector3.new(6, 0.2, 6), center + Vector3.new(0, 0.1, 0), ashCol, Enum.Material.SmoothPlastic)
+        logRing(6, 5.5, 0.7, 0.45, 0)
+        stoneRing(6, 2.8, Vector3.new(0.8, 0.5, 0.8), 0.25)
+
+    elseif tier == 3 then
+        -- Stone ring + base logs + 2 crossed logs on top; fire getting serious
+        firePart.Position = center + Vector3.new(0, 1.5, 0)
+        fire.Size = 13; fire.Heat = 14
+        mkBase(Vector3.new(7, 0.3, 7), center + Vector3.new(0, 0.15, 0), ashCol, Enum.Material.SmoothPlastic)
+        stoneRing(8, 3.2, Vector3.new(1, 0.8, 1), 0.4)
+        logRing(6, 5.5, 0.8, 0.5, 0)
+        mkLog(Vector3.new(5, 0.8, 0.8), CFrame.new(center + Vector3.new(0, 1.4, 0)))
+        mkLog(Vector3.new(0.8, 0.8, 5), CFrame.new(center + Vector3.new(0, 1.4, 0)))
+
+    elseif tier == 4 then
+        -- Stone pit walls + 3-layer log stack; fire pit
+        firePart.Position = center + Vector3.new(0, 2.3, 0)
+        fire.Size = 18; fire.Heat = 17
+        mkBase(Vector3.new(8, 0.5, 8), center + Vector3.new(0, 0.25, 0), stoneCol, Enum.Material.Cobblestone)
+        -- 4 arc wall segments forming a stone pit ring
+        for i = 0, 3 do
+            local a = i * math.pi / 2
+            mkStone(Vector3.new(3.2, 1.2, 0.8),
+                CFrame.new(center + Vector3.new(0, 0.9, 0)) * CFrame.Angles(0, a, 0) * CFrame.new(0, 0, 3.5))
+        end
+        logRing(6, 6, 0.9, 0.5, 0)
+        logRing(4, 5, 0.9, 1.45, math.pi / 4)
+        mkLog(Vector3.new(4.5, 0.9, 0.9), CFrame.new(center + Vector3.new(0, 2.4, 0)))
+        mkLog(Vector3.new(0.9, 0.9, 4.5), CFrame.new(center + Vector3.new(0, 2.4, 0)))
+
+    elseif tier == 5 then
+        -- Large stone ring, 4-layer bonfire
+        firePart.Position = center + Vector3.new(0, 3.3, 0)
+        fire.Size = 24; fire.Heat = 21
+        mkBase(Vector3.new(9, 0.6, 9), center + Vector3.new(0, 0.3, 0), stoneCol, Enum.Material.Cobblestone)
+        stoneRing(8, 4.2, Vector3.new(1.2, 1.5, 1.2), 0.75)
+        logRing(8, 7, 1, 0.6, 0)
+        logRing(6, 6, 1, 1.6, math.pi / 6)
+        logRing(4, 5, 1, 2.6, math.pi / 4)
+        mkLog(Vector3.new(4, 1, 1), CFrame.new(center + Vector3.new(0, 3.6, 0)))
+        mkLog(Vector3.new(1, 1, 4), CFrame.new(center + Vector3.new(0, 3.6, 0)))
+
+    else -- tier == 6: Great Bonfire
+        firePart.Position = center + Vector3.new(0, 4.6, 0)
+        fire.Size = 30; fire.Heat = 25
+        mkBase(Vector3.new(10, 0.8, 10), center + Vector3.new(0, 0.4, 0), stoneCol, Enum.Material.Cobblestone)
+        stoneRing(8, 4.8, Vector3.new(1.5, 2, 1.5), 1)
+        logRing(8, 8, 1.2, 0.7, 0)
+        logRing(6, 7, 1.2, 1.9, math.pi / 6)
+        logRing(6, 6, 1.2, 3.1, 0)
+        logRing(4, 5, 1.2, 4.2, math.pi / 4)
+        mkLog(Vector3.new(4.5, 1.2, 1.2), CFrame.new(center + Vector3.new(0, 5.4, 0)))
+        mkLog(Vector3.new(1.2, 1.2, 4.5), CFrame.new(center + Vector3.new(0, 5.4, 0)))
+    end
+
+    fire.Parent = firePart
+    label(firePart, "FirePit Lvl " .. tier)
+    model.Parent = workspace
+end
+
 local function makeIslandBoundary(center: Vector3, radius: number)
     local segments = 48
     local step     = (2 * math.pi) / segments
@@ -1195,36 +1349,9 @@ function WorldService.spawnDevTown()
     -- Spawn just south of the firepit (pit half-size=4, spawn half-size=3, 1-stud gap)
     if _spawn then _spawn.Position = center + Vector3.new(0, 1, 8) end
 
-    local function label(part: BasePart, text: string)
-        local bb       = Instance.new("BillboardGui")
-        bb.Size        = UDim2.new(0, 200, 0, 40)
-        bb.StudsOffset = Vector3.new(0, part.Size.Y / 2 + 3, 0)
-        bb.Parent      = part
-        local lbl                  = Instance.new("TextLabel")
-        lbl.Size                   = UDim2.new(1, 0, 1, 0)
-        lbl.BackgroundTransparency = 1
-        lbl.TextColor3             = Color3.new(1, 1, 1)
-        lbl.TextStrokeTransparency = 0
-        lbl.TextScaled             = true
-        lbl.Text                   = text
-        lbl.Parent                 = bb
-    end
-
-    -- Firepit — Fire.Color is a ColorSequence, not Color3; just use size+heat
+    -- Firepit tier 6 — great bonfire
     print("[DevTown] step 1: firepit")
-    local pit      = Instance.new("Part")
-    pit.Name       = "FirePit"
-    pit.Size       = Vector3.new(8, 2, 8)
-    pit.BrickColor = BrickColor.new("Reddish brown")
-    pit.Anchored   = true
-    pit.CanCollide = true
-    pit.Position   = center + Vector3.new(0, 1, 0)
-    pit.Parent     = workspace
-    local fire     = Instance.new("Fire")
-    fire.Size      = 30
-    fire.Heat      = 25
-    fire.Parent    = pit
-    label(pit, "Firepit Lvl 6")
+    spawnFirepit(center, 6)
 
     -- Tool shops — placed near their cardinal gates in dev mode (override production SW/NE diagonals)
     print("[DevTown] step 2: shops")
@@ -1450,6 +1577,11 @@ function WorldService.spawnDevTown()
     label(dp, "Enter Dungeon")
 
     print("[WorldService] Dev town fully spawned")
+end
+
+-- Rebuilds the firepit at the new tier. Called by Bootstrap on each upgrade.
+function WorldService.upgradeFirepit(tier: number)
+    spawnFirepit(GameConfig.TOWN_CENTER_POS, tier)
 end
 
 return WorldService

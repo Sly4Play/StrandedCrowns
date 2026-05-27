@@ -173,11 +173,7 @@ Remotes.UpgradeFirepit.OnServerInvoke = function(player: Player): boolean
         return false
     end
     _firepitLevel = nextLevel
-    local firePit = workspace:FindFirstChild("FirePit") :: BasePart?
-    if firePit then
-        local fire = firePit:FindFirstChildOfClass("Fire")
-        if fire then fire.Size = 6 + _firepitLevel * 2 end
-    end
+    WorldService.upgradeFirepit(_firepitLevel)
     if _firepitLevel == 1 then
         WorldService.unlockCardinalDefenses()   -- 8g "pays for" all 8 cardinal defenses; builders complete them
     end
